@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  app:
+    image: zhoutijie/milomcp:latest
+    build: .
+    env_file:
+      - .env
+    ports:
+      - "3000:3000"
+      - "3001:3001"
+    volumes:
+      - ./tools:/opt/mcp/tools
+      - ./middleware/user.json:/opt/mcp/middleware/user.json

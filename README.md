@@ -109,13 +109,16 @@ MCP Server running on:
 
 ### Running with Docker
 
-For a more isolated and reproducible environment, use Docker Compose.
+For a more isolated and reproducible environment, use Docker Compose. The official image is available on Docker Hub and is the recommended method for `amd64` architectures.
 
 1.  **Ensure your `.env` file is configured.**
-2.  **Build and run the container:**
+2.  **Run the container:**
+    This command will automatically pull the `zhoutijie/milomcp:latest` image from Docker Hub and start the service.
     ```sh
-    docker-compose up --build -d
+    docker-compose up -d
     ```
+    If you are on a different architecture or need to build the image from source, run `docker-compose up --build -d` instead.
+
 The server will be available at `http://localhost:3000`. The `tools` directory is mounted as a volume, so you can still modify tools on your host machine and use the `/reload` endpoint.
 
 ## 📡 API Endpoints

@@ -1,8 +1,10 @@
-# MiloMCP - A Flexible Model Context Protocol Server
+# MiloMCP - A Flexible MCP Development Framework
+
+[English](./README.md) | [简体中文](./README_zh-CN.md)
 
 ![GitHub License](https://img.shields.io/badge/license-MIT-blue.svg)![npm version](https://img.shields.io/npm/v/milomcp.svg?style=flat)![Node.js Version](https://img.shields.io/badge/node-%3E%3D14.0.0-brightgreen.svg)![Docker Pulls](https://img.shields.io/docker/pulls/zhoutijie/milomcp.svg)
 
-**MiloMCP** is a powerful and flexible server framework designed to implement the Model Context Protocol (MCP). It provides a robust backend for AI applications, enabling seamless communication and tool integration via JSON-RPC 2.0 over HTTP and WebSockets.
+**MiloMCP** is a powerful and flexible development framework for the Model Context Protocol (MCP). It provides a robust foundation for AI applications, enabling seamless communication and tool integration via JSON-RPC 2.0 over HTTP and WebSockets.
 
 ---
 

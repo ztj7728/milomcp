@@ -1,3 +1,2 @@
 .env
 middleware/user.json
-.dockerignore

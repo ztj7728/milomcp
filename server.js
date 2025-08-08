@@ -15,6 +15,7 @@ class MCPServer {
     this.app = express();
     this.server = http.createServer(this.app);
     this.wss = new WebSocket.Server({ port: this.wsPort });
+    this.sseConnections = [];
     
     // 初始化鉴权管理器
     this.auth = new AuthManager({
@@ -123,6 +124,57 @@ class MCPServer {
     // 兼容MCP协议的端点
     this.app.post('/mcp', async (req, res) => {
       await this.handleJsonRpc(req.body, res);
+    });
+
+    // --- SSE Routes ---
+
+    // SSE connection endpoint
+    this.app.get('/sse', (req, res) => {
+      console.log('New MCP SSE client connected');
+
+      // Set SSE response headers
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive'
+      });
+
+      // Per MCP spec, send the endpoint for messages
+      res.write('event: endpoint\n');
+      res.write('data: /messages\n\n');
+
+      // Keep connection alive
+      const keepAlive = setInterval(() => {
+        res.write(': heartbeat\n\n');
+      }, 30000);
+
+      this.sseConnections.push(res);
+
+      // Clean up on disconnect
+      req.on('close', () => {
+        console.log('MCP SSE client disconnected');
+        clearInterval(keepAlive);
+        const index = this.sseConnections.indexOf(res);
+        if (index > -1) {
+          this.sseConnections.splice(index, 1);
+        }
+      });
+    });
+
+    // SSE message receiving endpoint
+    this.app.post('/messages', async (req, res) => {
+      // Authenticate the request if auth is enabled
+      const authResult = req.auth;
+
+      const response = await this.processJsonRpc(req.body, authResult);
+      
+      console.log('Broadcasting MCP response via SSE for method:', req.body.method);
+
+      // Broadcast the response to all connected SSE clients
+      this.broadcastToSseClients(response);
+
+      // Per MCP spec, return HTTP 202 Accepted
+      res.sendStatus(202);
     });
 
     // 重载工具端点
@@ -381,6 +433,24 @@ class MCPServer {
     }
   }
 
+  broadcastToSseClients(response) {
+    if (this.sseConnections.length === 0) {
+      return;
+    }
+    
+    const ssePayload = `event: message\ndata: ${JSON.stringify(response)}\n\n`;
+
+    this.sseConnections.forEach((conn, index) => {
+      try {
+        conn.write(ssePayload);
+      } catch (error) {
+        console.error(`Failed to send to SSE client ${index}:`, error);
+        // Optional: remove broken connection
+        conn.end();
+      }
+    });
+  }
+
   createSuccessResponse(id, result) {
     return {
       jsonrpc: '2.0',
@@ -411,6 +481,7 @@ class MCPServer {
       console.log(`MCP Server running on:`);
       console.log(`  HTTP: http://localhost:${this.port}`);
       console.log(`  WebSocket: ws://localhost:${this.wsPort}`);
+      console.log(`  SSE: http://localhost:${this.port}/sse`);
       console.log(`  Health check: http://localhost:${this.port}/health`);
       console.log(`  Tools list: http://localhost:${this.port}/tools`);
       console.log('\nAvailable endpoints:');
@@ -422,6 +493,11 @@ class MCPServer {
   }
 
   stop() {
+    // Close all active SSE connections
+    this.sseConnections.forEach(res => res.end());
+    this.sseConnections = [];
+    console.log('Closed all SSE connections');
+
     this.server.close();
     this.wss.close();
     console.log('Server stopped');

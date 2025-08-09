@@ -51,8 +51,8 @@ MiloMCP 通过提供标准化的方式向语言模型暴露工具和能力，从
 
 1.  **克隆仓库:**
     ```sh
-    git clone https://github.com/your-username/MiloMcp.git
-    cd MiloMcp
+    git clone https://github.com/ztj7728/milomcp.git
+    cd milomcp
     ```
 
 2.  **安装依赖:**

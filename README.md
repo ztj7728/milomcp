@@ -15,7 +15,7 @@ MiloMCP simplifies the process of building AI-powered services by providing a st
 ### ✨ Key Features
 
 *   **🔌 Pluggable Tool Architecture**: Easily add or remove tools by dropping JavaScript files into a directory.
-*   **📡 Dual Protocol Support**: Communicate via JSON-RPC 2.0 over both **HTTP** and **WebSockets**.
+*   **📡 Multi-Protocol Support**: Communicate via JSON-RPC 2.0 over **HTTP**, **WebSockets**, and **Server-Sent Events (SSE)**.
 *   **🔐 Built-in Authentication**: Secure your endpoints with JWT-based authentication and permission management.
 *   **⚡ Rate Limiting**: Protect your server from abuse with configurable rate limiting.
 *   **🐳 Dockerized**: Get up and running in seconds with Docker and Docker Compose.
@@ -80,6 +80,7 @@ Follow these instructions to get a local copy up and running.
     | `JWT_SECRET`          | A long, random secret key for signing JWTs.                 | `your-secr` |
     | `ADMIN_TOKEN`         | A master token for admin access. Keep this secure.          | `your-admi` |
     | `RATE_LIMITING_ENABLED`| Set to `false` to disable rate limiting.                   | `true`      |
+    | `WEATHER_API_KEY`     | API key for the Amap Weather API used by the `weather` tool. | `""`        |
 
 
 ## 🏃 Usage
@@ -105,6 +106,7 @@ MCP Server starting with configuration:
 MCP Server running on:
   HTTP: http://localhost:3000
   WebSocket: ws://localhost:3001
+  SSE: http://localhost:3000/sse
   Health check: http://localhost:3000/health
   Tools list: http://localhost:3000/tools
 ```
@@ -134,6 +136,8 @@ The server exposes several endpoints for interaction and management.
 | `POST` | `/jsonrpc`      | The main endpoint for JSON-RPC calls.     | Yes           |
 | `POST` | `/mcp`          | An alias for `/jsonrpc` for MCP compatibility. | Yes           |
 | `POST` | `/reload`       | Hot-reloads all tools from the tools directory. | Yes           |
+| `GET`  | `/sse`          | Establishes a Server-Sent Events (SSE) connection. | Yes           |
+| `POST` | `/messages`     | Receives MCP requests and broadcasts responses via SSE. | Yes           |
 | `GET`  | `/admin/users`  | Lists all registered users.               | Admin         |
 | `POST` | `/admin/users`  | Adds a new user.                          | Admin         |
 
@@ -195,6 +199,8 @@ module.exports = {
 ```
 
 After adding the file, either restart the server or call the `/reload` endpoint to load the new tool.
+
+> **Hint**: The included `weather` tool is a more advanced example that calls an external **Amap Weather API**. To use it, you must configure your `WEATHER_API_KEY` in the `.env` file.
 
 ## 🔐 Authentication
 

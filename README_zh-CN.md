@@ -15,7 +15,7 @@ MiloMCP 通过提供标准化的方式向语言模型暴露工具和能力，从
 ### ✨ 核心特性
 
 *   **🔌 可插拔工具架构**: 只需将 JavaScript 文件放入指定目录，即可轻松添加或移除工具。
-*   **📡 双协议支持**: 同时支持通过 **HTTP** 和 **WebSocket** 进行 JSON-RPC 2.0 通信。
+*   **📡 多协议支持**: 同时支持通过 **HTTP**、**WebSocket** 和 **服务器发送事件 (SSE)** 进行 JSON-RPC 2.0 通信。
 *   **🔐 内置身份验证**: 使用基于 JWT 的身份验证和权限管理来保护您的端点。
 *   **⚡ 速率限制**: 通过可配置的速率限制保护您的服务器免受滥用。
 *   **🐳 Docker 化**: 使用 Docker 和 Docker Compose 在几秒钟内启动并运行。
@@ -80,6 +80,7 @@ MiloMCP 通过提供标准化的方式向语言模型暴露工具和能力，从
     | `JWT_SECRET`          | 用于签署 JWT 的长随机密钥。                | `your-secr` |
     | `ADMIN_TOKEN`         | 用于管理员访问的主令牌，请妥善保管。       | `your-admi` |
     | `RATE_LIMITING_ENABLED`| 设置为 `false` 可禁用速率限制。           | `true`      |
+    | `WEATHER_API_KEY`     | 用于 `weather` 工具的高德地图天气API密钥。 | `""`        |
 
 
 ## 🏃 使用方法
@@ -105,6 +106,7 @@ MCP Server starting with configuration:
 MCP Server running on:
   HTTP: http://localhost:3000
   WebSocket: ws://localhost:3001
+  SSE: http://localhost:3000/sse
   Health check: http://localhost:3000/health
   Tools list: http://localhost:3000/tools
 ```
@@ -134,6 +136,8 @@ MCP Server running on:
 | `POST` | `/jsonrpc`      | 用于 JSON-RPC 调用的主端点。              | 是       |
 | `POST` | `/mcp`          | `/jsonrpc` 的别名，用于 MCP 兼容。        | 是       |
 | `POST` | `/reload`       | 从工具目录热重载所有工具。                | 是       |
+| `GET`  | `/sse`          | 建立一个服务器发送事件 (SSE) 连接。       | 是       |
+| `POST` | `/messages`     | 接收 MCP 请求并通过 SSE 广播响应。        | 是       |
 | `GET`  | `/admin/users`  | 列出所有已注册的用户。                    | 管理员   |
 | `POST` | `/admin/users`  | 添加一个新用户。                          | 管理员   |
 
@@ -195,6 +199,8 @@ module.exports = {
 ```
 
 添加文件后，重启服务器或调用 `/reload` 端点以加载新工具。
+
+> **提示**: 项目中包含的 `weather` 工具是一个更高级的示例，它调用了外部的**高德天气API**。要使用此工具，您需要在 `.env` 文件中配置 `WEATHER_API_KEY`。
 
 ## 🔐 身份验证
 

@@ -7,7 +7,7 @@ services:
     env_file:
       - .env
     ports:
-      - "3000:3000"
+      - "${PORT}:${PORT}"
     volumes:
       - ./tools:/opt/mcp/tools
       - ./middleware/user.json:/opt/mcp/middleware/user.json

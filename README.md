@@ -20,7 +20,7 @@ MiloMCP simplifies the process of building AI-powered services by providing a st
 *   **⚡ Rate Limiting**: Protect your server from abuse with configurable rate limiting.
 *   **🐳 Dockerized**: Get up and running in seconds with Docker and Docker Compose.
 *   **🔥 Hot Reloading**: Reload tools on the fly without restarting the server.
-*   **⚙️ Easy Configuration**: Manage all settings through a simple `.env` file.
+*   **⚙️ Unified Configuration**: Centrally manage all settings via a single `.env` file for both local and Docker deployments.
 
 ## 📚 Table of Contents
 
@@ -62,14 +62,14 @@ Follow these instructions to get a local copy up and running.
 
 ### Configuration
 
-1.  **Create an environment file:**
-    Copy the example configuration to a new `.env` file.
+1.  **Create the environment file:**
+    Copy the example configuration to a new `.env` file. This is the central source of truth for all your settings.
     ```sh
     cp .env.example .env
     ```
 
 2.  **Edit the `.env` file:**
-    Open `.env` and customize the settings.
+    Open `.env` and customize the settings. **Configurations in this file apply to both local runs (`npm start`) and Docker deployments (`docker-compose`)**, enabling unified configuration.
 
     | Variable              | Description                                                 | Default     |
     | --------------------- | ----------------------------------------------------------- | ----------- |
@@ -87,7 +87,7 @@ Follow these instructions to get a local copy up and running.
 
 ### Running Locally
 
-Start the server with the following command:
+Start the server with the following command. The server will read its configuration from the `.env` file.
 
 ```sh
 npm start
@@ -113,17 +113,19 @@ MCP Server running on:
 
 ### Running with Docker
 
-For a more isolated and reproducible environment, use Docker Compose. The official image is available on Docker Hub and is the recommended method for `amd64` architectures.
+For a more isolated and reproducible environment, use Docker Compose.
 
-1.  **Ensure your `.env` file is configured.**
+1.  **Configure the `.env` file:**
+    Ensure your `.env` file is configured as needed. `docker-compose` will automatically read this file to set up port mappings and environment variables inside the container.
+
 2.  **Run the container:**
-    This command will automatically pull the `zhoutijie/milomcp:latest` image from Docker Hub and start the service.
+    This command will start the service based on your `.env` configuration.
     ```sh
     docker-compose up -d
     ```
-    If you are on a different architecture or need to build the image from source, run `docker-compose up --build -d` instead.
+    If you need to build the image from source (e.g., on an `arm64` machine), run `docker-compose up --build -d`.
 
-The server will be available at `http://localhost:3000`. The `tools` directory is mounted as a volume, so you can still modify tools on your host machine and use the `/reload` endpoint.
+**Key Point**: Regardless of the method, you only need to change `PORT` and `WS_PORT` in the `.env` file to modify the application's listening ports. For Docker, `docker-compose` automatically syncs the port mappings, so you don't need to edit the `docker-compose.yml` file manually.
 
 ## 📡 API Endpoints
 

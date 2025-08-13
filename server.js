@@ -2,7 +2,8 @@ require('dotenv').config();
 const express = require('express');
 const WebSocket = require('ws');
 const http = require('http');
-const fs = require('fs');
+const fs = require('fs').promises; // 使用fs.promises
+const { Worker } = require('worker_threads');
 const path = require('path');
 const AuthManager = require('./middleware/auth');
 
@@ -26,7 +27,8 @@ class MCPServer {
     });
     
     this.setupMiddleware();
-    this.loadTools(this.toolsDir);
+    // 异步加载工具，注意构造函数中不能直接await，所以用.then()
+    this.loadToolsAsync(this.toolsDir).catch(err => console.error("Failed to initialize tools:", err));
     this.setupRoutes();
     this.setupWebSocket();
   }
@@ -52,23 +54,33 @@ class MCPServer {
     this.app.use(this.auth.middleware());
   }
 
-  loadTools(toolsDir) {
+  async loadToolsAsync(toolsDir) {
     const toolsPath = path.resolve(toolsDir);
     
-    if (!fs.existsSync(toolsPath)) {
-      console.log(`Tools directory not found, creating: ${toolsPath}`);
-      fs.mkdirSync(toolsPath, { recursive: true });
-      return;
+    try {
+      await fs.access(toolsPath);
+    } catch (error) {
+      if (error.code === 'ENOENT') {
+        console.log(`Tools directory not found, creating: ${toolsPath}`);
+        await fs.mkdir(toolsPath, { recursive: true });
+        return;
+      }
+      throw error; // 抛出其他错误
     }
 
-    const toolFiles = fs.readdirSync(toolsPath).filter(file => file.endsWith('.js'));
+    const toolFiles = (await fs.readdir(toolsPath)).filter(file => file.endsWith('.js'));
     
-    for (const file of toolFiles) {
+    const loadPromises = toolFiles.map(async (file) => {
       try {
         const fullPath = path.join(toolsPath, file);
-        delete require.cache[require.resolve(fullPath)]; // 热重载支持
-        const tool = require(fullPath);
+        // For CJS compatibility with dynamic import, ensure paths are file URLs
+        const modulePath = 'file:///' + fullPath.replace(/\\/g, '/');
         
+        // 使用动态 import() 来异步加载模块
+        // 添加时间戳来绕过缓存，实现热重载
+        const toolModule = await import(`${modulePath}?t=${Date.now()}`);
+        const tool = toolModule.default || toolModule;
+
         if (tool && typeof tool.execute === 'function' && tool.name) {
           this.tools.set(tool.name, tool);
           console.log(`Loaded tool: ${tool.name}`);
@@ -78,15 +90,18 @@ class MCPServer {
       } catch (error) {
         console.error(`Error loading tool ${file}:`, error.message);
       }
-    }
+    });
 
+    await Promise.all(loadPromises);
     console.log(`Loaded ${this.tools.size} tools`);
   }
 
   // 重新加载工具
-  reloadTools() {
+  async reloadTools() {
     this.tools.clear();
-    this.loadTools(this.toolsDir);
+    console.log('Reloading tools...');
+    await this.loadToolsAsync(this.toolsDir);
+    console.log('Tools reloaded.');
   }
 
   setupRoutes() {
@@ -178,11 +193,12 @@ class MCPServer {
     });
 
     // 重载工具端点
-    this.app.post('/reload', (req, res) => {
-      this.reloadTools();
-      res.json({ 
+    // 重载工具端点
+    this.app.post('/reload', async (req, res) => {
+      await this.reloadTools();
+      res.json({
         jsonrpc: '2.0',
-        result: { 
+        result: {
           message: 'Tools reloaded successfully',
           tools: Array.from(this.tools.keys())
         }
@@ -418,7 +434,22 @@ class MCPServer {
     }
 
     try {
-      const result = await tool.execute(params.arguments || {});
+      const operation = params.operation; // e.g., 'wordFrequency'
+      const toolArgs = params.arguments || {};
+
+      let result;
+      // 检查是否是CPU密集型任务
+      if (operation && tool.cpu && typeof tool.cpu[operation] === 'function') {
+        console.log(`Executing CPU-intensive operation '${operation}' for tool '${params.name}' in a worker.`);
+        const func = tool.cpu[operation];
+        result = await this.runCpuIntensiveTask(func, toolArgs);
+      } else {
+        // 否则，执行标准的execute方法
+        if (typeof tool.execute !== 'function') {
+          throw new Error(`Tool '${params.name}' does not have an execute method or a matching CPU operation for '${operation}'.`);
+        }
+        result = await tool.execute(toolArgs);
+      }
       
       return this.createSuccessResponse(id, {
         content: [
@@ -429,8 +460,46 @@ class MCPServer {
         ]
       });
     } catch (error) {
+      console.error(`Error executing tool ${params.name}:`, error);
       return this.createErrorResponse(id, -32603, `Tool execution error: ${error.message}`);
     }
+  }
+
+  runCpuIntensiveTask(func, args) {
+    return new Promise((resolve, reject) => {
+      const workerPath = path.resolve(__dirname, './worker/generic-worker.js');
+      const worker = new Worker(workerPath);
+
+      worker.on('message', (message) => {
+        if (message.status === 'success') {
+          resolve(message.result);
+        } else {
+          // Reconstruct error object
+          const err = new Error(message.error.message);
+          err.stack = message.error.stack;
+          reject(err);
+        }
+        worker.terminate();
+      });
+
+      worker.on('error', (error) => {
+        reject(error);
+        worker.terminate();
+      });
+
+      worker.on('exit', (code) => {
+        if (code !== 0) {
+          // This might be redundant if error event is already handled
+          // reject(new Error(`Worker stopped with exit code ${code}`));
+        }
+      });
+
+      // Send the function's source code and arguments to the worker
+      worker.postMessage({
+        funcString: func.toString(),
+        args: args
+      });
+    });
   }
 
   broadcastToSseClients(response) {
@@ -506,27 +575,35 @@ class MCPServer {
 
 // 如果直接运行此文件
 if (require.main === module) {
-  // 从环境变量加载配置
-  const config = {
-    port: parseInt(process.env.PORT, 10) || 3000,
-    wsPort: parseInt(process.env.WS_PORT, 10) || 3001,
-    toolsDir: process.env.TOOLS_DIR || './tools',
-    authEnabled: process.env.AUTH_ENABLED !== 'false',
-    secretKey: process.env.JWT_SECRET,
-    rateLimitingEnabled: process.env.RATE_LIMITING_ENABLED !== 'false'
-  };
+  // 使用异步IIFE来处理顶层的await
+  (async () => {
+    // 从环境变量加载配置
+    const config = {
+      port: parseInt(process.env.PORT, 10) || 3000,
+      wsPort: parseInt(process.env.WS_PORT, 10) || 3001,
+      toolsDir: process.env.TOOLS_DIR || './tools',
+      authEnabled: process.env.AUTH_ENABLED !== 'false',
+      secretKey: process.env.JWT_SECRET,
+      rateLimitingEnabled: process.env.RATE_LIMITING_ENABLED !== 'false'
+    };
 
-  // 创建并启动服务器
-  const server = new MCPServer(config);
-  server.start();
+    // 创建服务器实例
+    const server = new MCPServer(config);
+    
+    // 由于构造函数中的加载是异步的，我们在这里可以等待它完成（如果需要）
+    // 但由于我们用了.then()，服务器会启动，工具会在后台加载。
+    // 为了确保启动信息打印时工具已加载，我们可以在start之前等待
+    // 不过当前设计是并行启动，所以直接start()。
 
-  console.log('MCP Server starting with configuration:');
-  console.log(`  HTTP Port: ${config.port}`);
-  console.log(`  WebSocket Port: ${config.wsPort}`);
-  console.log(`  Tools Directory: ${path.resolve(config.toolsDir)}`);
-  console.log(`  Authentication: ${config.authEnabled ? 'Enabled' : 'Disabled'}`);
-  console.log(`  Rate Limiting: ${config.rateLimitingEnabled ? 'Enabled' : 'Disabled'}`);
-  console.log('');
+    server.start();
+
+    console.log('MCP Server starting with configuration:');
+    console.log(`  HTTP Port: ${config.port}`);
+    console.log(`  WebSocket Port: ${config.wsPort}`);
+    console.log(`  Tools Directory: ${path.resolve(config.toolsDir)}`);
+    console.log(`  Authentication: ${config.authEnabled ? 'Enabled' : 'Disabled'}`);
+    console.log(`  Rate Limiting: ${config.rateLimitingEnabled ? 'Enabled' : 'Disabled'}`);
+    console.log('');
 
 
   // 优雅关闭处理
@@ -549,6 +626,7 @@ if (require.main === module) {
   process.on('unhandledRejection', (reason, promise) => {
     console.error('Unhandled Rejection at:', promise, 'reason:', reason);
   });
+})(); //立即执行异步函数
 }
 
 module.exports = MCPServer;

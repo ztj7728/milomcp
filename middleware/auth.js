@@ -1,6 +1,5 @@
 const crypto = require('crypto');
-const path = require('path');
-const db = require('../db/database');
+const dbPromise = require('../db/database');
 
 const DEFAULT_RATE_LIMIT = { requests: 1000, window: 3600000 }; // 1000 requests per hour
 
@@ -10,15 +9,21 @@ class AuthManager {
     this.adminToken = process.env.ADMIN_TOKEN;
     this.rateLimiting = options.rateLimiting;
 
+    this.db = null;
     this.users = new Map(); // K: token, V: userInfo
     this.rateLimitMap = new Map();
     this.blacklist = new Set();
 
-    this.loadUsers();
+    this.initialize();
     this.setupCleanupInterval();
   }
 
-  loadUsers() {
+  async initialize() {
+    this.db = await dbPromise;
+    await this.loadUsers();
+  }
+
+  async loadUsers() {
     // 1. Load Admin Token from environment
     if (this.adminToken) {
       this.users.set(this.adminToken, {
@@ -33,11 +38,8 @@ class AuthManager {
     }
 
     // 2. Load regular users from database
-    db.all('SELECT * FROM users', [], (err, rows) => {
-      if (err) {
-        console.error('Error loading users from database:', err.message);
-        return;
-      }
+    try {
+      const rows = await this.db.all('SELECT * FROM users');
       rows.forEach(user => {
         this.users.set(user.token, {
           ...user,
@@ -46,10 +48,12 @@ class AuthManager {
         });
       });
       console.log(`Loaded ${rows.length} users from database.`);
-    });
+    } catch (err) {
+      console.error('Error loading users from database:', err.message);
+    }
   }
 
-  addUser(userInfo) {
+  async addUser(userInfo) {
     if (!userInfo || !userInfo.id) {
       throw new Error('User ID is required.');
     }
@@ -70,29 +74,27 @@ class AuthManager {
       isAdmin: false,
     };
 
-    const stmt = db.prepare('INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-    stmt.run(
-      newUser.id,
-      newUser.name,
-      newUser.token,
-      JSON.stringify(newUser.permissions),
-      newUser.createdAt,
-      newUser.expiresAt,
-      JSON.stringify(newUser.rateLimits),
-      newUser.isAdmin,
-      (err) => {
-        if (err) {
-          throw new Error('Failed to add user to database.');
-        }
-        this.users.set(newUser.token, newUser);
-      }
-    );
-    stmt.finalize();
-
-    return newUser;
+    try {
+      await this.db.run(
+        'INSERT INTO users (id, name, token, permissions, createdAt, expiresAt, rateLimits, isAdmin) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        newUser.id,
+        newUser.name,
+        newUser.token,
+        JSON.stringify(newUser.permissions),
+        newUser.createdAt,
+        newUser.expiresAt,
+        JSON.stringify(newUser.rateLimits),
+        newUser.isAdmin
+      );
+      this.users.set(newUser.token, newUser);
+      return newUser;
+    } catch (err) {
+      console.error('Failed to add user to database:', err);
+      throw new Error('Failed to add user to database.');
+    }
   }
 
-  removeUser(userId) {
+  async removeUser(userId) {
     let tokenToRemove = null;
     for (const [token, user] of this.users.entries()) {
       if (user.id === userId && !user.isAdmin) {
@@ -101,19 +103,19 @@ class AuthManager {
       }
     }
     if (tokenToRemove) {
-      db.run('DELETE FROM users WHERE id = ?', [userId], (err) => {
-        if (err) {
-          console.error(`Failed to remove user ${userId} from database.`);
-          return false;
-        }
+      try {
+        await this.db.run('DELETE FROM users WHERE id = ?', [userId]);
         this.users.delete(tokenToRemove);
-      });
-      return true;
+        return true;
+      } catch (err) {
+        console.error(`Failed to remove user ${userId} from database.`);
+        return false;
+      }
     }
     return false;
   }
 
-  updateUser(userId, updates) {
+  async updateUser(userId, updates) {
     let userToUpdate = null;
     let token = null;
     for (const [t, user] of this.users.entries()) {
@@ -137,29 +139,25 @@ class AuthManager {
 
     Object.assign(userToUpdate, updates);
 
-    const stmt = db.prepare(`UPDATE users SET
-      name = ?,
-      permissions = ?,
-      expiresAt = ?,
-      rateLimits = ?
-      WHERE id = ?`);
-
-    stmt.run(
-      userToUpdate.name,
-      JSON.stringify(userToUpdate.permissions),
-      userToUpdate.expiresAt,
-      JSON.stringify(userToUpdate.rateLimits),
-      userId,
-      (err) => {
-        if (err) {
-          throw new Error('Failed to update user in database.');
-        }
-        this.users.set(token, userToUpdate);
-      }
-    );
-    stmt.finalize();
-
-    return userToUpdate;
+    try {
+      await this.db.run(`UPDATE users SET
+        name = ?,
+        permissions = ?,
+        expiresAt = ?,
+        rateLimits = ?
+        WHERE id = ?`,
+        userToUpdate.name,
+        JSON.stringify(userToUpdate.permissions),
+        userToUpdate.expiresAt,
+        JSON.stringify(userToUpdate.rateLimits),
+        userId
+      );
+      this.users.set(token, userToUpdate);
+      return userToUpdate;
+    } catch (err) {
+      console.error('Failed to update user in database:', err);
+      throw new Error('Failed to update user in database.');
+    }
   }
   
   getAllUsers() {
@@ -215,36 +213,37 @@ class AuthManager {
     };
   }
 
-  revokeToken(token) {
+  async revokeToken(token) {
     this.blacklist.add(token);
     const user = this.users.get(token);
     if (user && !user.isAdmin) {
-      db.run('DELETE FROM users WHERE token = ?', [token], (err) => {
-        if (err) {
-          console.error(`Failed to remove user with token ${token} from database.`);
-          return;
-        }
+      try {
+        await this.db.run('DELETE FROM users WHERE token = ?', [token]);
         this.users.delete(token);
         console.log(`Token revoked and user removed: ${token.substring(0, 20)}...`);
-      });
+      } catch (err) {
+        console.error(`Failed to remove user with token ${token} from database.`);
+      }
     } else {
         console.log(`Token blacklisted: ${token.substring(0, 20)}...`);
     }
   }
 
   setupCleanupInterval() {
-    setInterval(() => {
+    setInterval(async () => {
+      if (!this.db) return; // Don't run if db is not initialized
       const now = new Date().toISOString();
-      db.run('DELETE FROM users WHERE expiresAt IS NOT NULL AND expiresAt < ?', [now], (err) => {
-        if (err) {
-          console.error('Error cleaning up expired users:', err.message);
-          return;
+      try {
+        const result = await this.db.run('DELETE FROM users WHERE expiresAt IS NOT NULL AND expiresAt < ?', [now]);
+        if (result.changes > 0) {
+            console.log('Cleaned up expired users. Reloading...');
+            // Now, reload users from DB to reflect the changes in memory
+            this.users.clear();
+            await this.loadUsers();
         }
-        // Now, reload users from DB to reflect the changes in memory
-        this.users.clear();
-        this.loadUsers();
-        console.log('Cleaned up expired users.');
-      });
+      } catch (err) {
+        console.error('Error cleaning up expired users:', err.message);
+      }
     }, 300000);
   }
 
@@ -256,6 +255,10 @@ class AuthManager {
       const authHeader = req.headers.authorization;
       const token = authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : (req.query.token || req.headers['x-api-key']);
       if (!token) {
+        // Allow access to /admin/users for setup if no users exist
+        if (req.path === '/admin/users' && this.users.size === 0) {
+            return next();
+        }
         return res.status(401).json({ error: { code: -32001, message: 'Authentication required' } });
       }
       const verification = this.verifyToken(token);

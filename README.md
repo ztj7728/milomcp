@@ -119,11 +119,22 @@ For a more isolated and reproducible environment, use Docker Compose.
     Ensure your `.env` file is configured as needed. `docker-compose` will automatically read this file to set up port mappings and environment variables inside the container.
 
 2.  **Run the container:**
-    This command will start the service based on your `.env` configuration.
+    The project includes a convenient deployment script to pull the latest image and start the container.
+
+    First, make the script executable (only needs to be done once):
     ```sh
-    docker-compose up -d
+    chmod +x deploy.sh
     ```
-    If you need to build the image from source (e.g., on an `arm64` machine), run `docker-compose up --build -d`.
+
+    Then, run the script to deploy the service:
+    ```sh
+    ./deploy.sh
+    ```
+    This script will pull the latest `zhoutijie/milomcp` image from Docker Hub and start the service using the configuration from your `.env` file.
+
+    If you prefer manual control or need to build from source, you can still use `docker-compose` commands:
+    *   For manual startup: `docker-compose up -d`
+    *   To build from source and start (e.g., on an `arm64` machine): `docker-compose up --build -d`
 
 **Key Point**: Regardless of the method, you only need to change `PORT` and `WS_PORT` in the `.env` file to modify the application's listening ports. For Docker, `docker-compose` automatically syncs the port mappings, so you don't need to edit the `docker-compose.yml` file manually.
 

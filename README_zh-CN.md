@@ -119,11 +119,22 @@ MCP Server running on:
     确保您的 `.env` 文件已根据需要配置。`docker-compose` 会自动读取此文件来设置端口映射和容器内的环境变量。
 
 2.  **运行容器:**
-    此命令将根据您的 `.env` 配置启动服务。
+    项目提供了一个便捷的部署脚本，用于拉取最新镜像并启动容器。
+
+    首先，为脚本添加执行权限（仅需首次执行）：
     ```sh
-    docker-compose up -d
+    chmod +x deploy.sh
     ```
-    如果您需要从源代码构建镜像（例如，在 `arm64` 架构的机器上），请运行 `docker-compose up --build -d`。
+
+    然后，运行脚本来部署服务：
+    ```sh
+    ./deploy.sh
+    ```
+    此脚本会从 Docker Hub 拉取最新的 `zhoutijie/milomcp` 镜像，并使用您在 `.env` 文件中的配置来启动服务。
+
+    如果您希望手动控制或从源代码构建，仍然可以使用 `docker-compose` 命令：
+    *   手动启动：`docker-compose up -d`
+    *   从源代码构建并启动（例如，在 `arm64` 架构的机器上）：`docker-compose up --build -d`
 
 **重点**: 无论使用哪种方式，您只需要修改 `.env` 文件中的 `PORT` 和 `WS_PORT`，即可统一改变应用程序的监听端口。对于 Docker，`docker-compose` 会自动同步端口映射，无需手动修改 `docker-compose.yml` 文件。
 

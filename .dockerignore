@@ -1,8 +1,8 @@
 .env
-middleware/user.json
+db/mcp.db
 .gitignore
 docker-compose.yml
 Dockerfile
 node_modules/
-package-lock.json
 .idea/
+package-lock.json

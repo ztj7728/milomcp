@@ -1,6 +1,6 @@
 const crypto = require('crypto');
-const fs = require('fs');
 const path = require('path');
+const db = require('../db/database');
 
 const DEFAULT_RATE_LIMIT = { requests: 1000, window: 3600000 }; // 1000 requests per hour
 
@@ -8,7 +8,6 @@ class AuthManager {
   constructor(options = {}) {
     this.enabled = options.enabled !== false;
     this.adminToken = process.env.ADMIN_TOKEN;
-    this.usersFile = path.join(__dirname, 'user.json');
     this.rateLimiting = options.rateLimiting;
 
     this.users = new Map(); // K: token, V: userInfo
@@ -33,34 +32,21 @@ class AuthManager {
       console.warn('⚠️ WARNING: ADMIN_TOKEN is not set. Admin functionality will be disabled.');
     }
 
-    // 2. Load regular users from user.json
-    try {
-      if (fs.existsSync(this.usersFile)) {
-        const data = JSON.parse(fs.readFileSync(this.usersFile, 'utf8'));
-        if (data && Array.isArray(data.users)) {
-          data.users.forEach(user => {
-            if (user.token) {
-              this.users.set(user.token, user);
-            }
-          });
-          console.log(`Loaded ${data.users.length} users from ${this.usersFile}`);
-        }
-      } else {
-        this.saveUsers(); // Create the file if it doesn't exist
+    // 2. Load regular users from database
+    db.all('SELECT * FROM users', [], (err, rows) => {
+      if (err) {
+        console.error('Error loading users from database:', err.message);
+        return;
       }
-    } catch (error) {
-      console.error(`Error loading users from ${this.usersFile}:`, error.message);
-    }
-  }
-
-  saveUsers() {
-    try {
-      const usersToSave = Array.from(this.users.values()).filter(u => !u.isAdmin);
-      const data = { users: usersToSave };
-      fs.writeFileSync(this.usersFile, JSON.stringify(data, null, 2));
-    } catch (error) {
-      console.error(`Error saving users to ${this.usersFile}:`, error.message);
-    }
+      rows.forEach(user => {
+        this.users.set(user.token, {
+          ...user,
+          permissions: JSON.parse(user.permissions || '[]'),
+          rateLimits: JSON.parse(user.rateLimits || '{}'),
+        });
+      });
+      console.log(`Loaded ${rows.length} users from database.`);
+    });
   }
 
   addUser(userInfo) {
@@ -68,7 +54,6 @@ class AuthManager {
       throw new Error('User ID is required.');
     }
 
-    // Check for duplicate user ID
     const existingUser = Array.from(this.users.values()).find(u => u.id === userInfo.id);
     if (existingUser) {
       throw new Error(`User with ID '${userInfo.id}' already exists.`);
@@ -84,8 +69,26 @@ class AuthManager {
       rateLimits: userInfo.rateLimits || DEFAULT_RATE_LIMIT,
       isAdmin: false,
     };
-    this.users.set(newUser.token, newUser);
-    this.saveUsers();
+
+    const stmt = db.prepare('INSERT INTO users VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    stmt.run(
+      newUser.id,
+      newUser.name,
+      newUser.token,
+      JSON.stringify(newUser.permissions),
+      newUser.createdAt,
+      newUser.expiresAt,
+      JSON.stringify(newUser.rateLimits),
+      newUser.isAdmin,
+      (err) => {
+        if (err) {
+          throw new Error('Failed to add user to database.');
+        }
+        this.users.set(newUser.token, newUser);
+      }
+    );
+    stmt.finalize();
+
     return newUser;
   }
 
@@ -98,8 +101,13 @@ class AuthManager {
       }
     }
     if (tokenToRemove) {
-      this.users.delete(tokenToRemove);
-      this.saveUsers();
+      db.run('DELETE FROM users WHERE id = ?', [userId], (err) => {
+        if (err) {
+          console.error(`Failed to remove user ${userId} from database.`);
+          return false;
+        }
+        this.users.delete(tokenToRemove);
+      });
       return true;
     }
     return false;
@@ -107,10 +115,11 @@ class AuthManager {
 
   updateUser(userId, updates) {
     let userToUpdate = null;
-    
-    for (const user of this.users.values()) {
+    let token = null;
+    for (const [t, user] of this.users.entries()) {
       if (user.id === userId && !user.isAdmin) {
         userToUpdate = user;
+        token = t;
         break;
       }
     }
@@ -119,7 +128,6 @@ class AuthManager {
       throw new Error(`User not found: ${userId}`);
     }
 
-    // Prevent modification of protected fields
     const protectedFields = ['id', 'token', 'createdAt', 'isAdmin'];
     for (const field of protectedFields) {
       if (updates.hasOwnProperty(field)) {
@@ -127,10 +135,30 @@ class AuthManager {
       }
     }
 
-    // Apply updates
     Object.assign(userToUpdate, updates);
 
-    this.saveUsers();
+    const stmt = db.prepare(`UPDATE users SET
+      name = ?,
+      permissions = ?,
+      expiresAt = ?,
+      rateLimits = ?
+      WHERE id = ?`);
+
+    stmt.run(
+      userToUpdate.name,
+      JSON.stringify(userToUpdate.permissions),
+      userToUpdate.expiresAt,
+      JSON.stringify(userToUpdate.rateLimits),
+      userId,
+      (err) => {
+        if (err) {
+          throw new Error('Failed to update user in database.');
+        }
+        this.users.set(token, userToUpdate);
+      }
+    );
+    stmt.finalize();
+
     return userToUpdate;
   }
   
@@ -189,22 +217,34 @@ class AuthManager {
 
   revokeToken(token) {
     this.blacklist.add(token);
-    if (this.users.has(token) && !this.users.get(token).isAdmin) {
+    const user = this.users.get(token);
+    if (user && !user.isAdmin) {
+      db.run('DELETE FROM users WHERE token = ?', [token], (err) => {
+        if (err) {
+          console.error(`Failed to remove user with token ${token} from database.`);
+          return;
+        }
         this.users.delete(token);
-        this.saveUsers();
+        console.log(`Token revoked and user removed: ${token.substring(0, 20)}...`);
+      });
+    } else {
+        console.log(`Token blacklisted: ${token.substring(0, 20)}...`);
     }
-    console.log(`Token revoked: ${token.substring(0, 20)}...`);
   }
 
   setupCleanupInterval() {
     setInterval(() => {
-      const now = Date.now();
-      for (const [token, info] of this.users.entries()) {
-        if (info.expiresAt && now > new Date(info.expiresAt).getTime()) {
-          this.users.delete(token);
-          if(!info.isAdmin) this.saveUsers();
+      const now = new Date().toISOString();
+      db.run('DELETE FROM users WHERE expiresAt IS NOT NULL AND expiresAt < ?', [now], (err) => {
+        if (err) {
+          console.error('Error cleaning up expired users:', err.message);
+          return;
         }
-      }
+        // Now, reload users from DB to reflect the changes in memory
+        this.users.clear();
+        this.loadUsers();
+        console.log('Cleaned up expired users.');
+      });
     }, 300000);
   }
 

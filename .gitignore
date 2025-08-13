@@ -1,5 +1,5 @@
 .env
-middleware/user.json
+db\mcp.db
 node_modules/
 package-lock.json
 .idea/

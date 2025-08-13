@@ -1,5 +1,5 @@
 .env
-db\mcp.db
+db/mcp.db
 node_modules/
 package-lock.json
 .idea/

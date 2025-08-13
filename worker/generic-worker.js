@@ -7,13 +7,12 @@ const { parentPort } = require('worker_threads');
 parentPort.on('message', async ({ funcString, args }) => {
   try {
     // Reconstruct the function from its string representation.
-    // This is a safer way to execute dynamic code than eval().
-    // The 'AsyncFunction' constructor allows the reconstructed function to be async.
+    // The function will receive a single object 'args' as its parameter.
     const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor;
-    const func = new AsyncFunction(...Object.keys(args), `return (${funcString})(...Object.values(arguments));`);
+    const func = new AsyncFunction('args', `return (${funcString})(args);`);
 
-    // Execute the function with the provided arguments.
-    const result = await func(...Object.values(args));
+    // Execute the function, passing the entire args object as the single argument.
+    const result = await func(args);
     
     // Send the result back to the main thread.
     parentPort.postMessage({ status: 'success', result });

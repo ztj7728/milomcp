@@ -74,7 +74,7 @@ module.exports = {
 -   **长时间运行的计算**：如复杂的数学运算（斐波那契数列）、大规模数据处理（大型数组排序、过滤）、图像或视频处理、数据加解密等。
 -   **任何可能阻塞事件循环超过几毫秒的同步代码**。
 
-**工作原理**：当工具被调用时，框架会检查调用的操作是否在 `cpu` 对象中定义。
+**工作原理**：当工具被调用时，框架会检查 `arguments` 中 `operation` 参数指定的操作是否存在于 `tool.cpu` 对象中。
 -   **是**：框架会自动将该函数及其参数发送到共享的 **Worker Thread 池** 中执行，确保主线程不会被阻塞。
 -   **否**：框架会调用 `execute` 方法。
 
@@ -96,7 +96,8 @@ module.exports = {
   description: '处理文本：统计、转换、提取等功能',
   parameters: {
     text: { type: 'string', description: '要处理的文本内容', required: true },
-    operation: { type: 'string', description: '操作类型', default: 'count' }
+    operation: { type: 'string', description: '要执行的具体操作', required: true },
+    word: { type: 'string', description: '要操作的特定单词', required: false }
   },
 
   // 轻量级操作放在 execute 中
@@ -110,34 +111,39 @@ module.exports = {
       case 'reverse':
         return text.split('').reverse().join('');
       default:
-        // 如果操作不是轻量级的，或者未定义，可以抛出错误或返回提示
-        throw new Error(`操作 "${operation}" 不支持或应通过CPU密集型任务执行器调用。`);
+        // 优雅地处理无效操作
+        const cpuOperations = Object.keys(this.cpu);
+        if (cpuOperations.includes(operation)) {
+          throw new Error(`操作 "${operation}" 是一个CPU密集型任务，应该在工作线程中执行。`);
+        }
+        const lightweightOperations = ['uppercase', 'lowercase', 'reverse']; // 手动维护或动态生成
+        const availableOperations = [...lightweightOperations, ...cpuOperations];
+        throw new Error(`不支持的操作: "${operation}". 可用的操作有: ${availableOperations.join(', ')}`);
     }
   },
 
   // 重量级操作放在 cpu 中
   cpu: {
-    wordFrequency: (text) => {
-      const words = text.toLowerCase()
-        .replace(/[^\w\s]/g, '')
-        .split(/\s+/)
-        .filter(word => word.length > 0);
+    countWordOccurrence: ({ text, word }) => {
+      if (!text || typeof text !== 'string' || !word) {
+        return { count: 0 };
+      }
+      const specificWord = word.toLowerCase();
+      const words = text.toLowerCase().match(/\b[a-z]+\b/g) || [];
       
-      const frequency = {};
-      words.forEach(word => {
-        frequency[word] = (frequency[word] || 0) + 1;
-      });
-      
-      return Object.entries(frequency)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 10)
-        .map(([word, count]) => ({ word, count }));
+      const count = words.reduce((acc, currentWord) => {
+        return currentWord === specificWord ? acc + 1 : acc;
+      }, 0);
+
+      return { word: specificWord, count };
     },
     
-    countStats: (text) => {
+    wordCount: ({ text }) => {
+        if (!text || typeof text !== 'string') return {};
+        const words = text.trim().split(/\s+/).filter(word => word.length > 0);
         return {
           characters: text.length,
-          words: text.trim().split(/\s+/).length,
+          words: words.length,
           lines: text.split('\n').length
         };
     }

@@ -9,13 +9,18 @@ module.exports = {
     },
     operation: {
       type: 'string',
-      description: '要执行的具体操作 (e.g., "uppercase", "wordFrequency")',
+      description: '要执行的具体操作 (e.g., "uppercase", "lowercase", "reverse", "extract-emails", "extract-urls", "countWordOccurrence")',
       required: true
+    },
+    word: {
+      type: 'string',
+      description: '要操作的特定单词 (例如 "Emma")',
+      required: false
     }
   },
   examples: [
     { text: 'Hello World!', operation: 'uppercase' },
-    { text: 'The quick brown fox jumps over the lazy dog. The dog was not amused.', operation: 'wordFrequency' }
+    { text: 'Emma is a writer. Emma lives in Paris.', operation: 'countWordOccurrence', word: 'Emma' }
   ],
 
   /**
@@ -43,8 +48,15 @@ module.exports = {
         const urlRegex = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/g;
         return text.match(urlRegex) || [];
 
-      default:
-        throw new Error(`操作 "${operation}" 不支持或应通过CPU密集型任务执行器调用。请检查工具文档。`);
+      default: {
+        const cpuOperations = Object.keys(this.cpu);
+        if (cpuOperations.includes(operation)) {
+          throw new Error(`操作 "${operation}" 是一个CPU密集型任务，应该在工作线程中执行。`);
+        }
+        const lightweightOperations = ['uppercase', 'lowercase', 'reverse', 'extract-emails', 'extract-urls'];
+        const availableOperations = [...lightweightOperations, ...cpuOperations];
+        throw new Error(`不支持的操作: "${operation}". 可用的操作有: ${availableOperations.join(', ')}`);
+      }
     }
   },
 
@@ -53,37 +65,29 @@ module.exports = {
    * 框架会自动将这些函数放入工作线程中执行。
    */
   cpu: {
-    wordFrequency: (text) => {
-      if (!text || typeof text !== 'string') {
-        return [];
+    countWordOccurrence: ({ text, word }) => {
+      if (!text || typeof text !== 'string' || !word) {
+        return { count: 0 };
       }
-      const words = text.toLowerCase()
-        .replace(/[^\w\s]/g, '') // 移除标点
-        .split(/\s+/)
-        .filter(word => word.length > 0);
+      const specificWord = word.toLowerCase();
+      const words = text.toLowerCase().match(/\b[a-z]+\b/g) || [];
       
-      const frequency = {};
-      words.forEach(word => {
-        frequency[word] = (frequency[word] || 0) + 1;
-      });
-      
-      // 返回排序后的前10个结果
-      return Object.entries(frequency)
-        .sort((a, b) => b - a)
-        .slice(0, 10)
-        .map(([word, count]) => ({ word, count }));
+      const count = words.reduce((acc, currentWord) => {
+        return currentWord === specificWord ? acc + 1 : acc;
+      }, 0);
+
+      return { word: specificWord, count };
     },
 
-    count: (text) => {
+    wordCount: ({ text }) => {
       if (!text || typeof text !== 'string') {
         return {};
       }
+      const words = text.trim().split(/\s+/).filter(word => word.length > 0);
       return {
         characters: text.length,
-        charactersNoSpaces: text.replace(/\s/g, '').length,
-        words: text.trim().split(/\s+/).filter(word => word.length > 0).length,
+        words: words.length,
         lines: text.split('\n').length,
-        paragraphs: text.split(/\n\s*\n/).filter(p => p.trim().length > 0).length
       };
     }
   }

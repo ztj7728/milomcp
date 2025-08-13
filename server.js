@@ -434,8 +434,8 @@ class MCPServer {
     }
 
     try {
-      const operation = params.operation; // e.g., 'wordFrequency'
       const toolArgs = params.arguments || {};
+      const operation = toolArgs.operation; // 从 arguments 中获取 operation
 
       let result;
       // 检查是否是CPU密集型任务

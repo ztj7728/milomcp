@@ -71,20 +71,18 @@ class AuthManager {
       createdAt: new Date().toISOString(),
       expiresAt: userInfo.expiresAt || null,
       rateLimits: userInfo.rateLimits || DEFAULT_RATE_LIMIT,
-      isAdmin: false,
     };
 
     try {
       await this.db.run(
-        'INSERT INTO users (id, name, token, permissions, createdAt, expiresAt, rateLimits, isAdmin) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        'INSERT INTO users (id, name, token, permissions, createdAt, expiresAt, rateLimits) VALUES (?, ?, ?, ?, ?, ?, ?)',
         newUser.id,
         newUser.name,
         newUser.token,
         JSON.stringify(newUser.permissions),
         newUser.createdAt,
         newUser.expiresAt,
-        JSON.stringify(newUser.rateLimits),
-        newUser.isAdmin
+        JSON.stringify(newUser.rateLimits)
       );
       this.users.set(newUser.token, newUser);
       return newUser;
@@ -161,7 +159,7 @@ class AuthManager {
   }
   
   getAllUsers() {
-      return Array.from(this.users.values()).filter(u => !u.isAdmin);
+    return Array.from(this.users.values()).filter(u => !u.isAdmin).map(u => ({ ...u, token: u.token }));
   }
 
   verifyToken(token) {
@@ -292,13 +290,26 @@ class AuthManager {
     return { authenticated: true, tokenInfo: verification.tokenInfo };
   }
 
-  getStats() {
-    return {
-      totalUsers: this.users.size,
-      blacklistedTokens: this.blacklist.size,
-      activeConnections: this.rateLimitMap.size,
-      authEnabled: this.enabled
-    };
+  async getStats() {
+    try {
+      const result = await this.db.get('SELECT COUNT(*) as count FROM users');
+      const userCount = result ? result.count : 0;
+      return {
+        totalUsers: userCount,
+        blacklistedTokens: this.blacklist.size,
+        activeConnections: this.rateLimitMap.size,
+        authEnabled: this.enabled
+      };
+    } catch (error) {
+      console.error('Failed to get user stats from database:', error);
+      // Fallback to in-memory count on error
+      return {
+        totalUsers: Array.from(this.users.values()).filter(u => !u.isAdmin).length,
+        blacklistedTokens: this.blacklist.size,
+        activeConnections: this.rateLimitMap.size,
+        authEnabled: this.enabled
+      };
+    }
   }
 }
 

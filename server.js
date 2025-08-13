@@ -40,7 +40,7 @@ class MCPServer {
     // CORS支持
     this.app.use((req, res, next) => {
       res.header('Access-Control-Allow-Origin', '*');
-      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
       res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-API-Key');
       res.header('Access-Control-Expose-Headers', 'X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset');
       if (req.method === 'OPTIONS') {
@@ -106,13 +106,22 @@ class MCPServer {
 
   setupRoutes() {
     // 健康检查
-    this.app.get('/health', (req, res) => {
-      res.json({ 
-        status: 'ok', 
-        timestamp: new Date().toISOString(),
-        tools: Array.from(this.tools.keys()),
-        auth: this.auth.getStats()
-      });
+    this.app.get('/health', async (req, res) => {
+      try {
+        const authStats = await this.auth.getStats();
+        res.json({
+          status: 'ok',
+          timestamp: new Date().toISOString(),
+          tools: Array.from(this.tools.keys()),
+          auth: authStats
+        });
+      } catch (error) {
+        console.error('Failed to get health stats:', error);
+        res.status(500).json({
+          status: 'error',
+          message: 'Failed to retrieve health statistics.'
+        });
+      }
     });
 
 
@@ -223,12 +232,12 @@ class MCPServer {
       const users = this.auth.getAllUsers();
       res.json({
         jsonrpc: '2.0',
-        result: users.map(u => ({ id: u.id, name: u.name, permissions: u.permissions, createdAt: u.createdAt, rateLimits: u.rateLimits, expiresAt: u.expiresAt }))
+        result: users.map(u => ({ id: u.id, name: u.name, token: u.token, permissions: u.permissions, createdAt: u.createdAt, rateLimits: u.rateLimits, expiresAt: u.expiresAt }))
       });
     });
 
     // Add a new user
-    this.app.post('/admin/users', adminOnly, (req, res) => {
+    this.app.post('/admin/users', adminOnly, async (req, res) => {
       const { id, name, permissions, rateLimits, expiresAt } = req.body;
       if (!id) {
         return res.status(400).json({
@@ -237,7 +246,7 @@ class MCPServer {
         });
       }
       try {
-        const newUser = this.auth.addUser({ id, name, permissions, rateLimits, expiresAt });
+        const newUser = await this.auth.addUser({ id, name, permissions, rateLimits, expiresAt });
         res.status(201).json({ jsonrpc: '2.0', result: newUser });
       } catch (error) {
         res.status(400).json({
@@ -262,12 +271,12 @@ class MCPServer {
     });
 
     // Update a user
-    this.app.patch('/admin/users/:id', adminOnly, (req, res) => {
+    this.app.patch('/admin/users/:id', adminOnly, async (req, res) => {
       const { id } = req.params;
       const updates = req.body;
 
       try {
-        const updatedUser = this.auth.updateUser(id, updates);
+        const updatedUser = await this.auth.updateUser(id, updates);
         res.json({ jsonrpc: '2.0', result: updatedUser });
       } catch (error) {
         const statusCode = error.message.includes('not found') ? 404 : 400;

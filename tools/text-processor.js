@@ -4,20 +4,18 @@ module.exports = {
   parameters: {
     text: {
       type: 'string',
-      description: '要处理的文本内容',
-      required: true
+      description: '要处理的文本内容'
     },
     operation: {
       type: 'string',
-      description: '要执行的具体操作 (e.g., "uppercase", "lowercase", "reverse", "extract-emails", "extract-urls", "countWordOccurrence")',
-      required: true
+      description: '要执行的具体操作 (e.g., "uppercase", "lowercase", "reverse", "extract-emails", "extract-urls", "countWordOccurrence")'
     },
     word: {
       type: 'string',
-      description: '要操作的特定单词 (例如 "Emma")',
-      required: false
+      description: '要操作的特定单词 (例如 "Emma")'
     }
   },
+  required: ['text', 'operation'],
   examples: [
     { text: 'Hello World!', operation: 'uppercase' },
     { text: 'Emma is a writer. Emma lives in Paris.', operation: 'countWordOccurrence', word: 'Emma' }

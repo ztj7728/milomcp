@@ -130,8 +130,11 @@ class MCPServer {
       const toolList = Array.from(this.tools.values()).map(tool => ({
         name: tool.name,
         description: tool.description || '',
-        parameters: tool.parameters || {},
-        examples: tool.examples || []
+        inputSchema: {
+          type: 'object',
+          properties: tool.parameters || {},
+          required: tool.required || []
+        }
       }));
       
       res.json({

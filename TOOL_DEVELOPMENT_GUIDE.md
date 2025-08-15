@@ -2,6 +2,9 @@
 
 本指南旨在帮助开发者为MiloMCP框架创建功能强大、高效且易于维护的工具。我们的核心设计哲学是：**让开发者专注于业务逻辑，将基础设施的复杂性交给框架处理。**
 
+## 文档日期
+2025/8/15
+
 ## 工具模块结构
 
 每个工具都应该是一个独立的Node.js模块（一个`.js`文件），位于`tools`目录下。该模块必须导出一个对象，该对象包含工具的元数据和执行逻辑。
@@ -97,20 +100,18 @@ module.exports = {
   parameters: {
     text: {
       type: 'string',
-      description: '要处理的文本内容',
-      required: true
+      description: '要处理的文本内容'
     },
     operation: {
       type: 'string',
-      description: '要执行的具体操作 (e.g., "uppercase", "lowercase", "reverse", "extract-emails", "extract-urls", "countWordOccurrence")',
-      required: true
+      description: '要执行的具体操作 (e.g., "uppercase", "lowercase", "reverse", "extract-emails", "extract-urls", "countWordOccurrence")'
     },
     word: {
       type: 'string',
-      description: '要操作的特定单词 (例如 "Emma")',
-      required: false
+      description: '要操作的特定单词 (例如 "Emma")'
     }
   },
+  required: ['text', 'operation'],
   examples: [
     { text: 'Hello World!', operation: 'uppercase' },
     { text: 'Emma is a writer. Emma lives in Paris.', operation: 'countWordOccurrence', word: 'Emma' }
@@ -187,4 +188,188 @@ module.exports = {
 };
 ```
 
-通过遵循本指南，你可以轻松地为MiloMCP生态系统贡献出既强大又不会阻塞服务器的关键功能。
+## 工具生命周期管理
+
+MiloMCP框架提供了完整的工具生命周期管理功能，包括工具的列表查询、动态重载等操作。这些功能通过RESTful API和JSON-RPC 2.0协议提供，方便前端开发者集成。
+
+### 工具列表查询
+
+框架提供两种方式查询已加载的工具列表：
+
+#### 方式一：RESTful API
+
+**端点**: `GET /tools`
+
+**请求示例**:
+```bash
+curl -X GET http://localhost:3000/tools
+```
+
+**响应格式**:
+```json
+{
+  "jsonrpc": "2.0",
+  "result": [
+    {
+      "name": "text-processor",
+      "description": "处理文本：统计、转换、提取等功能。调用时需指定operation参数。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "要处理的文本内容"
+          },
+          "operation": {
+            "type": "string",
+            "description": "要执行的具体操作 (e.g., \"uppercase\", \"lowercase\", \"reverse\", \"extract-emails\", \"extract-urls\", \"countWordOccurrence\")"
+          },
+          "word": {
+            "type": "string",
+            "description": "要操作的特定单词 (例如 \"Emma\")"
+          }
+        },
+        "required": ["text", "operation"]
+      }
+    }
+  ]
+}
+```
+
+#### 方式二：JSON-RPC 2.0
+
+**端点**: `POST /jsonrpc`
+
+**请求示例**:
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/list",
+  "id": 1
+}
+```
+
+**响应格式**:```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "tools": [
+      {
+        "name": "text-processor",
+        "description": "处理文本：统计、转换、提取等功能。调用时需指定operation参数。",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "description": "要处理的文本内容"
+            },
+            "operation": {
+              "type": "string",
+              "description": "要执行的具体操作 (e.g., \"uppercase\", \"lowercase\", \"reverse\", \"extract-emails\", \"extract-urls\", \"countWordOccurrence\")"
+            },
+            "word": {
+              "type": "string",
+              "description": "要操作的特定单词 (例如 \"Emma\")"
+            }
+          },
+          "required": ["text", "operation"]
+        }
+      }
+    ]
+  },
+  "id": 1
+}
+```
+
+### 工具重载
+
+当您添加、修改或删除工具文件后，可以使用重载API来刷新工具列表，无需重启服务器。
+
+**端点**: `POST /reload`
+
+**请求示例**:
+```bash
+curl -X POST http://localhost:3000/reload
+```
+
+**成功响应**:
+```json
+{
+  "success": true,
+  "message": "工具重载成功",
+  "loadedTools": ["text-processor", "calculator"],
+  "reloadTime": "2024-01-15T10:30:00.000Z"
+}
+```
+
+**失败响应**:
+```json
+{
+  "success": false,
+  "error": "工具重载失败: [具体错误信息]"
+}
+```
+
+### 工具管理工作流程
+
+#### 添加新工具
+
+1. **创建工具文件**: 在 `tools/` 目录下创建新的 `.js` 文件
+2. **编写工具代码**: 按照本指南的规范编写工具模块
+3. **重载工具**: 调用 `POST /reload` API 重新加载工具
+4. **验证工具**: 使用 `GET /tools` 或 `tools/list` 确认工具已成功加载
+
+**示例工作流程**:
+```bash
+# 1. 创建新工具文件
+echo 'module.exports = { name: "hello", description: "Say hello", execute: async () => "Hello!" };' > tools/hello.js
+
+# 2. 重载工具
+curl -X POST http://localhost:3000/reload
+
+# 3. 验证工具已加载
+curl -X GET http://localhost:3000/tools
+```
+
+#### 修改现有工具
+
+1. **编辑工具文件**: 修改 `tools/` 目录下的对应 `.js` 文件
+2. **重载工具**: 调用 `POST /reload` API 应用更改
+3. **测试工具**: 调用工具验证修改是否生效
+
+#### 删除工具
+
+1. **删除工具文件**: 从 `tools/` 目录删除对应的 `.js` 文件
+2. **重载工具**: 调用 `POST /reload` API 更新工具列表
+3. **确认删除**: 使用 `GET /tools` 确认工具已从列表中移除
+
+**注意事项**:
+- 工具文件的修改会在下次重载时生效
+- 重载操作是原子性的，要么全部成功，要么全部回滚
+- 如果某个工具文件有语法错误，重载会失败并保持原有工具列表
+- 建议在生产环境中谨慎使用重载功能
+
+### 错误处理
+
+工具管理API会返回详细的错误信息，帮助开发者快速定位问题：
+
+**常见错误类型**:
+- **语法错误**: 工具文件包含JavaScript语法错误
+- **模块错误**: 工具模块导出格式不正确
+- **参数错误**: 工具参数定义不符合规范
+- **文件系统错误**: 无法读取tools目录或文件权限问题
+
+**错误响应示例**:
+```json
+{
+  "success": false,
+  "error": "工具加载失败",
+  "details": {
+    "file": "tools/broken-tool.js",
+    "error": "SyntaxError: Unexpected token '}'"
+  }
+}
+```
+
+通过遵循本指南，你可以轻松地为MiloMCP生态系统贡献出既强大又不会阻塞服务器的关键功能，并且能够灵活地管理工具的整个生命周期。

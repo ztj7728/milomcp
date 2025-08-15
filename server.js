@@ -105,6 +105,17 @@ class MCPServer {
   }
 
   setupRoutes() {
+    // Middleware to check for admin privileges
+    const adminOnly = (req, res, next) => {
+      if (req.auth && req.auth.isAdmin) {
+        return next();
+      }
+      return res.status(403).json({
+        jsonrpc: '2.0',
+        error: { code: -32003, message: 'Insufficient permissions: Admin access required' }
+      });
+    };
+
     // 健康检查
     this.app.get('/health', async (req, res) => {
       try {
@@ -124,23 +135,22 @@ class MCPServer {
       }
     });
 
-
     // 获取工具列表
     this.app.get('/tools', (req, res) => {
-      const toolList = Array.from(this.tools.values()).map(tool => ({
-        name: tool.name,
-        description: tool.description || '',
-        inputSchema: {
-          type: 'object',
-          properties: tool.parameters || {},
-          required: tool.required || []
-        }
-      }));
+      const toolList = this.getToolsForUser(req.auth);
       
       res.json({
         jsonrpc: '2.0',
         result: {
-          tools: toolList
+          tools: toolList.map(tool => ({
+            name: tool.name,
+            description: tool.description || '',
+            inputSchema: {
+              type: 'object',
+              properties: tool.parameters || {},
+              required: tool.required || []
+            }
+          }))
         }
       });
     });
@@ -208,29 +218,20 @@ class MCPServer {
 
     // 重载工具端点
     // 重载工具端点
-    this.app.post('/reload', async (req, res) => {
+    this.app.post('/reload', adminOnly, async (req, res) => {
       await this.reloadTools();
+      const accessibleTools = this.getToolsForUser(req.auth).map(t => t.name);
       res.json({
         jsonrpc: '2.0',
         result: {
           message: 'Tools reloaded successfully',
-          tools: Array.from(this.tools.keys())
+          tools: accessibleTools
         }
       });
     });
 
     // --- Admin User Management Routes ---
 
-    // Middleware to check for admin privileges
-    const adminOnly = (req, res, next) => {
-      if (req.auth && req.auth.isAdmin) {
-        return next();
-      }
-      return res.status(403).json({
-        jsonrpc: '2.0',
-        error: { code: -32003, message: 'Insufficient permissions: Admin access required' }
-      });
-    };
 
     // Get all users
     this.app.get('/admin/users', adminOnly, (req, res) => {
@@ -386,7 +387,7 @@ class MCPServer {
           return this.handleInitialize(id, params);
         
         case 'tools/list':
-          return this.handleToolsList(id);
+          return this.handleToolsList(id, auth);
         
         case 'tools/call':
           return await this.handleToolCall(id, params, auth);
@@ -418,8 +419,8 @@ class MCPServer {
     });
   }
 
-  handleToolsList(id) {
-    const tools = Array.from(this.tools.values()).map(tool => ({
+  handleToolsList(id, auth = null) {
+    const tools = this.getToolsForUser(auth).map(tool => ({
       name: tool.name,
       description: tool.description || '',
       inputSchema: {
@@ -584,6 +585,22 @@ class MCPServer {
     this.server.close();
     this.wss.close();
     console.log('Server stopped');
+  }
+
+  getToolsForUser(auth) {
+    const allTools = Array.from(this.tools.values());
+
+    if (!this.auth.enabled || (auth && auth.isAdmin)) {
+      return allTools;
+    }
+
+    if (!auth) {
+      return [];
+    }
+
+    return allTools.filter(tool =>
+      this.auth.hasPermission(auth, `tool:${tool.name}`) || this.auth.hasPermission(auth, '*')
+    );
   }
 }
 

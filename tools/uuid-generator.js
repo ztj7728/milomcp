@@ -22,6 +22,7 @@ module.exports = {
       description: '可选前缀'
     }
   },
+  required: [],
   examples: [
     { type: 'uuid4' },
     { type: 'short', count: 5 },

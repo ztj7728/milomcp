@@ -139,7 +139,9 @@ class MCPServer {
       
       res.json({
         jsonrpc: '2.0',
-        result: toolList
+        result: {
+          tools: toolList
+        }
       });
     });
 

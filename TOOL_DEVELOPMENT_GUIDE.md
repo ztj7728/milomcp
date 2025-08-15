@@ -209,30 +209,32 @@ curl -X GET http://localhost:3000/tools
 ```json
 {
   "jsonrpc": "2.0",
-  "result": [
-    {
-      "name": "text-processor",
-      "description": "处理文本：统计、转换、提取等功能。调用时需指定operation参数。",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "text": {
-            "type": "string",
-            "description": "要处理的文本内容"
+  "result": {
+    "tools": [
+      {
+        "name": "text-processor",
+        "description": "处理文本：统计、转换、提取等功能。调用时需指定operation参数。",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "description": "要处理的文本内容"
+            },
+            "operation": {
+              "type": "string",
+              "description": "要执行的具体操作 (e.g., \"uppercase\", \"lowercase\", \"reverse\", \"extract-emails\", \"extract-urls\", \"countWordOccurrence\")"
+            },
+            "word": {
+              "type": "string",
+              "description": "要操作的特定单词 (例如 \"Emma\")"
+            }
           },
-          "operation": {
-            "type": "string",
-            "description": "要执行的具体操作 (e.g., \"uppercase\", \"lowercase\", \"reverse\", \"extract-emails\", \"extract-urls\", \"countWordOccurrence\")"
-          },
-          "word": {
-            "type": "string",
-            "description": "要操作的特定单词 (例如 \"Emma\")"
-          }
-        },
-        "required": ["text", "operation"]
+          "required": ["text", "operation"]
+        }
       }
-    }
-  ]
+    ]
+  }
 }
 ```
 

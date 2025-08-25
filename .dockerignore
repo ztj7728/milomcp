@@ -9,3 +9,4 @@ package-lock.json
 /tools/*
 !/tools/template/
 !/tools/template/*
+.claude/

@@ -7,3 +7,4 @@ GEMINI.md
 /tools/*
 !/tools/template/
 !/tools/template/*
+.claude/

@@ -15,15 +15,32 @@ module.exports = (async () => {
 
     console.log('Connected to the SQLite database.');
 
+    // Stores core user identity information.
     await db.exec(`CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
+      id TEXT PRIMARY KEY,          -- The unique username
       name TEXT,
-      token TEXT UNIQUE,
-      permissions TEXT,
+      passwordHash TEXT,            -- Securely hashed password
       createdAt TEXT,
-      expiresAt TEXT,
-      rateLimits TEXT,
-      isAdmin BOOLEAN
+      isAdmin BOOLEAN DEFAULT 0
+    )`);
+
+    // Stores persistent, user-generated API tokens for tool execution.
+    await db.exec(`CREATE TABLE IF NOT EXISTS tokens (
+      token TEXT PRIMARY KEY,
+      userId TEXT NOT NULL,
+      name TEXT,
+      permissions TEXT,             -- e.g., '["calculator", "weather"]' (subset of tools in their workspace)
+      createdAt TEXT,
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+    )`);
+
+    // Stores user-specific environment variables.
+    await db.exec(`CREATE TABLE IF NOT EXISTS user_environment_variables (
+      userId TEXT NOT NULL,
+      key TEXT NOT NULL,
+      value TEXT, -- This should be encrypted for security
+      PRIMARY KEY (userId, key),
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
     )`);
 
     return db;

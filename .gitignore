@@ -4,3 +4,6 @@ node_modules/
 package-lock.json
 .idea/
 GEMINI.md
+/tools/*
+!/tools/template/
+!/tools/template/*

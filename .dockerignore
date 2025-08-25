@@ -6,3 +6,6 @@ Dockerfile
 node_modules/
 .idea/
 package-lock.json
+/tools/*
+!/tools/template/
+!/tools/template/*

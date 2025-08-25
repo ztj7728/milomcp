@@ -17,11 +17,12 @@ module.exports = (async () => {
 
     // Stores core user identity information.
     await db.exec(`CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,          -- The unique username
+      id TEXT PRIMARY KEY,          -- The unique, immutable user ID (UUID)
+      username TEXT UNIQUE NOT NULL,  -- The user's login name
       name TEXT,
       passwordHash TEXT,            -- Securely hashed password
       createdAt TEXT,
-      isAdmin BOOLEAN DEFAULT 0
+      isAdmin BOOLEAN DEFAULT false
     )`);
 
     // Stores persistent, user-generated API tokens for tool execution.

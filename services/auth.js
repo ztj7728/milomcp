@@ -1,17 +1,19 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
 const dbPromise = require('../db/database');
+const userServicePromise = require('./user'); // Import UserService
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
 class AuthService {
-  constructor(db) {
+  constructor(db, userService) {
     this.db = db;
+    this.userService = userService;
   }
 
   async login(username, password) {
-    // Logic to find user and verify password
-    const user = await (await this.db).get('SELECT * FROM users WHERE id = ?', username);
+    // Find user by their login name
+    const user = await this.userService.findUserByUsername(username);
     if (!user) {
       throw new Error('User not found');
     }
@@ -21,7 +23,7 @@ class AuthService {
       throw new Error('Invalid password');
     }
 
-    // Issue JWT
+    // Issue JWT with the user's immutable UUID
     const accessToken = jwt.sign({ userId: user.id, isAdmin: user.isAdmin }, JWT_SECRET, { expiresIn: '1h' });
     return { accessToken };
   }
@@ -55,7 +57,7 @@ class AuthService {
   }
 }
 
-// Initialize with the database promise
-const authServicePromise = dbPromise.then(db => new AuthService(db));
+// Initialize with the database and user service promises
+const authServicePromise = Promise.all([dbPromise, userServicePromise]).then(([db, userService]) => new AuthService(db, userService));
 
 module.exports = authServicePromise;

@@ -4,23 +4,23 @@
 
 ![GitHub License](https://img.shields.io/badge/license-MIT-blue.svg)![npm version](https://img.shields.io/npm/v/milomcp.svg?style=flat)![Node.js Version](https://img.shields.io/badge/node-%3E%3D14.0.0-brightgreen.svg)![Docker Pulls](https://img.shields.io/docker/pulls/zhoutijie/milomcp.svg)
 
-**MiloMCP** is a powerful and flexible development framework for the Model Context Protocol (MCP). It provides a robust foundation for AI applications, enabling seamless communication and tool integration via JSON-RPC 2.0 over HTTP and WebSockets.
+**MiloMCP** is a powerful, multi-user development framework for the Model Context Protocol (MCP). It provides a robust foundation for AI applications, enabling seamless communication and tool integration via JSON-RPC 2.0 over HTTP and WebSockets. Each user has their own secure workspace to manage tools and environment variables.
 
 ---
 
 ## 🌟 Overview
 
-MiloMCP simplifies the process of building AI-powered services by providing a standardized way to expose tools and capabilities to language models. It's built with Node.js and Express, offering high performance and a plug-and-play architecture for adding custom tools.
+MiloMCP simplifies building AI-powered services by providing a standardized, user-centric way to expose tools and capabilities to language models. Built with Node.js, Express, and SQLite, it offers high performance, data persistence, and a secure architecture for managing user-specific tools.
 
 ### ✨ Key Features
 
-*   **🔌 Pluggable Tool Architecture**: Easily add or remove tools by dropping JavaScript files into a directory.
-*   **📡 Multi-Protocol Support**: Communicate via JSON-RPC 2.0 over **HTTP**, **WebSockets**, and **Server-Sent Events (SSE)**.
-*   **🔐 Built-in Authentication**: Secure your endpoints with JWT-based authentication and permission management.
-*   **⚡ Rate Limiting**: Protect your server from abuse with configurable rate limiting.
-*   **🐳 Dockerized**: Get up and running in seconds with Docker and Docker Compose.
-*   **🔥 Hot Reloading**: Reload tools on the fly without restarting the server.
-*   **⚙️ Unified Configuration**: Centrally manage all settings via a single `.env` file for both local and Docker deployments.
+*   **👤 Multi-User Architecture**: Secure, isolated workspaces for each user to manage their own tools and environment variables.
+*   **🔐 Robust Authentication**: A complete authentication system with user sign-up, login (JWT-based), and API token management.
+*   **🛠️ Dynamic Tool Management**: Users can create, read, update, and delete their own tools through a RESTful API.
+*   **📡 Multi-Protocol Support**: Communicate via JSON-RPC 2.0 over **HTTP** and **WebSockets**.
+*   **⚙️ Persistent Storage**: User data, tools, and environment variables are stored in a persistent SQLite database.
+*   **🐳 Dockerized**: Get up and running in seconds with a unified configuration for both local and Docker deployments.
+*   **🌐 RESTful API**: A comprehensive API for managing users, authentication, tools, and environment variables.
 
 ## 📚 Table of Contents
 
@@ -32,7 +32,7 @@ MiloMCP simplifies the process of building AI-powered services by providing a st
   - [Running Locally](#running-locally)
   - [Running with Docker](#running-with-docker)
 - [API Endpoints](#api-endpoints)
-- [Creating Tools](#creating-tools)
+- [Creating and Using Tools](#creating-and-using-tools)
 - [Authentication](#authentication)
 - [Contributing](#contributing)
 - [License](#license)
@@ -63,25 +63,22 @@ Follow these instructions to get a local copy up and running.
 ### Configuration
 
 1.  **Create the environment file:**
-    Copy the example configuration to a new `.env` file. This is the central source of truth for all your settings.
+    Copy the example configuration to a new `.env` file. This file is central to all your settings.
     ```sh
     cp .env.example .env
     ```
 
 2.  **Edit the `.env` file:**
-    Open `.env` and customize the settings. **Configurations in this file apply to both local runs (`npm start`) and Docker deployments (`docker-compose`)**, enabling unified configuration.
+    Open `.env` and customize the settings. **These configurations apply to both local runs (`npm start`) and Docker deployments.**
 
-    | Variable              | Description                                                 | Default     |
-    | --------------------- | ----------------------------------------------------------- | ----------- |
-    | `PORT`                | The port for the HTTP server.                               | `3000`      |
-    | `WS_PORT`             | The port for the WebSocket server.                          | `3001`      |
-    | `TOOLS_DIR`           | The directory where your tool files are located.            | `./tools`   |
-    | `AUTH_ENABLED`        | Set to `false` to disable authentication.                   | `true`      |
-    | `JWT_SECRET`          | A long, random secret key for signing JWTs.                 | `your-secr` |
-    | `ADMIN_TOKEN`         | A master token for admin access. Keep this secure.          | `your-admi` |
-    | `RATE_LIMITING_ENABLED`| Set to `false` to disable rate limiting.                   | `true`      |
-    | `WEATHER_API_KEY`     | API key for the Amap Weather API used by the `weather` tool. | `""`        |
+    | Variable                 | Description                                                              | Default     |
+    | ------------------------ | ------------------------------------------------------------------------ | ----------- |
+    | `PORT`                   | The port for the HTTP and WebSocket server.                              | `3000`      |
+    | `JWT_SECRET`             | A long, random secret key for signing JWT access tokens.                 | `your-jwt-secret` |
+    | `INITIAL_ADMIN_USER`     | The username for the initial administrator account.                      | `admin`     |
+    | `INITIAL_ADMIN_PASSWORD` | The password for the initial administrator account.                      | `adminpass` |
 
+    **Important**: The first time the server starts, it will create an admin user with the credentials above. If these variables are not set, the admin user will not be created.
 
 ## 🏃 Usage
 
@@ -93,22 +90,9 @@ Start the server with the following command. The server will read its configurat
 npm start
 ```
 
-You should see output indicating that the server is running and tools have been loaded:
-
+You should see output indicating that the server is running:
 ```
-MCP Server starting with configuration:
-  HTTP Port: 3000
-  WebSocket Port: 3001
-  Tools Directory: /path/to/your/project/tools
-  Authentication: Enabled
-  Rate Limiting: Enabled
-
-MCP Server running on:
-  HTTP: http://localhost:3000
-  WebSocket: ws://localhost:3001
-  SSE: http://localhost:3000/sse
-  Health check: http://localhost:3000/health
-  Tools list: http://localhost:3000/tools
+Server is running on http://localhost:3000
 ```
 
 ### Running with Docker
@@ -116,7 +100,7 @@ MCP Server running on:
 For a more isolated and reproducible environment, use Docker Compose.
 
 1.  **Configure the `.env` file:**
-    Ensure your `.env` file is configured as needed. `docker-compose` will automatically read this file to set up port mappings and environment variables inside the container.
+    Ensure your `.env` file is configured as needed. `docker-compose` will automatically read this file.
 
 2.  **Run the container:**
     The project includes a convenient deployment script to pull the latest image and start the container.
@@ -130,33 +114,56 @@ For a more isolated and reproducible environment, use Docker Compose.
     ```sh
     ./deploy.sh
     ```
-    This script will pull the latest `zhoutijie/milomcp` image from Docker Hub and start the service using the configuration from your `.env` file.
-
-    If you prefer manual control or need to build from source, you can still use `docker-compose` commands:
-    *   For manual startup: `docker-compose up -d`
-    *   To build from source and start (e.g., on an `arm64` machine): `docker-compose up --build -d`
-
-**Key Point**: Regardless of the method, you only need to change `PORT` and `WS_PORT` in the `.env` file to modify the application's listening ports. For Docker, `docker-compose` automatically syncs the port mappings, so you don't need to edit the `docker-compose.yml` file manually.
+    This script will pull the latest `zhoutijie/milomcp` image from Docker Hub and start the service using the configuration from your `.env` file. The `db` and `tools` directories will be persisted as volumes.
 
 ## 📡 API Endpoints
 
-The server exposes several endpoints for interaction and management.
+The server exposes a RESTful API for management and a JSON-RPC endpoint for tool interaction.
 
-| Method | Endpoint        | Description                               | Auth Required |
-| ------ | --------------- | ----------------------------------------- | ------------- |
-| `GET`  | `/health`       | Checks the server's health and status.    | No            |
-| `GET`  | `/tools`        | Lists all available tools and their schemas. | Yes           |
-| `POST` | `/jsonrpc`      | The main endpoint for JSON-RPC calls.     | Yes           |
-| `POST` | `/mcp`          | An alias for `/jsonrpc` for MCP compatibility. | Yes           |
-| `POST` | `/reload`       | Hot-reloads all tools from the tools directory. | Yes           |
-| `GET`  | `/sse`          | Establishes a Server-Sent Events (SSE) connection. | Yes           |
-| `POST` | `/messages`     | Receives MCP requests and broadcasts responses via SSE. | Yes           |
-| `GET`  | `/admin/users`  | Lists all registered users.               | Admin         |
-| `POST` | `/admin/users`  | Adds a new user.                          | Admin         |
+### REST API
+
+All REST endpoints are prefixed with `/api`.
+
+| Method   | Endpoint                      | Description                                       | Auth Required | Admin Only |
+| -------- | ----------------------------- | ------------------------------------------------- | ------------- | ---------- |
+| `POST`   | `/sign-up`                    | Creates a new user account.                       | No            | No         |
+| `POST`   | `/login`                      | Logs in a user and returns a JWT access token.    | No            | No         |
+| `GET`    | `/me`                         | Retrieves the current user's profile.             | Yes           | No         |
+| `GET`    | `/tokens`                     | Lists all API tokens for the current user.        | Yes           | No         |
+| `POST`   | `/tokens`                     | Creates a new API token for the current user.     | Yes           | No         |
+| `DELETE` | `/tokens/:token`              | Revokes an API token.                             | Yes           | No         |
+| `GET`    | `/workspace/files`            | Lists all tool files in the user's workspace.     | Yes           | No         |
+| `GET`    | `/workspace/files/:filename`  | Reads the content of a specific tool file.        | Yes           | No         |
+| `PUT`    | `/workspace/files/:filename`  | Creates or updates a tool file.                   | Yes           | No         |
+| `DELETE` | `/workspace/files/:filename`  | Deletes a tool file from the workspace.           | Yes           | No         |
+| `GET`    | `/environment`                | Gets all environment variables for the user.      | Yes           | No         |
+| `POST`   | `/environment`                | Sets an environment variable for the user.        | Yes           | No         |
+| `DELETE` | `/environment/:key`           | Deletes an environment variable.                  | Yes           | No         |
+| `GET`    | `/users`                      | Lists all users in the system.                    | Yes           | Yes        |
+| `POST`   | `/users`                      | Creates a new user (admin only).                  | Yes           | Yes        |
+| `DELETE` | `/users/:id`                  | Deletes a user (admin only).                      | Yes           | Yes        |
+
+### JSON-RPC API
+
+The main endpoint for JSON-RPC calls is `/jsonrpc` (or its alias `/mcp`).
 
 **Example: Calling a tool with `curl`**
 
+To call a tool, you need a valid API token. You can create one via the `/api/tokens` endpoint after logging in.
+
 ```sh
+# First, log in to get an access token
+curl -X POST http://localhost:3000/api/login \
+     -H "Content-Type: application/json" \
+     -d '{ "username": "youruser", "password": "yourpassword" }'
+
+# Next, create an API token using your access token
+curl -X POST http://localhost:3000/api/tokens \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+     -d '{ "name": "my-first-token", "permissions": ["*"] }'
+
+# Finally, call the tool using the new API token
 curl -X POST http://localhost:3000/jsonrpc \
      -H "Content-Type: application/json" \
      -H "Authorization: Bearer YOUR_API_TOKEN" \
@@ -171,18 +178,18 @@ curl -X POST http://localhost:3000/jsonrpc \
          }'
 ```
 
-## 🛠️ Creating Tools
+## 🛠️ Creating and Using Tools
 
-Creating a new tool is simple. Just create a new `.js` file in your `tools` directory (`./tools` by default).
+Each user manages their own set of tools in their personal workspace.
 
-Each tool file must export an object with the following properties:
+1.  **Log In**: Authenticate via the `/api/login` endpoint to get a JWT access token.
+2.  **Create a Tool**: Use the `PUT /api/workspace/files/:filename` endpoint to upload your tool's code. The filename will be used as the tool's name (e.g., `calculator.js`).
+3.  **Create an API Token**: Use the `/api/tokens` endpoint to generate an API token. You can grant it permissions to specific tools (e.g., `["calculator"]`) or all tools (`["*"]`).
+4.  **Call the Tool**: Use the JSON-RPC endpoint with your API token to execute the tool.
 
-*   `name` (string): The unique name of the tool (e.g., `weather.get_current_weather`).
-*   `description` (string): A clear description of what the tool does.
-*   `parameters` (object): An object defining the input parameters for the tool.
-*   `execute` (async function): The function that contains the tool's logic.
+**Example: `calculator.js`**
 
-**Example: `tools/calculator.js`**
+Each tool file must export an object with `name`, `description`, `parameters`, and an `execute` function.
 
 ```javascript
 module.exports = {
@@ -198,12 +205,13 @@ module.exports = {
     },
     required: ['expression']
   },
-  async execute({ expression }) {
+  async execute(args, env) {
+    // `args` contains the arguments passed from the tool call.
+    // `env` contains the user's merged environment variables.
     try {
-      // Note: Using eval is risky in production. This is just an example.
-      // A safer implementation would use a math parsing library.
-      const result = eval(expression);
-      return `The result of "${expression}" is ${result}.`;
+      // Note: Using eval is risky. A safer implementation would use a math parsing library.
+      const result = eval(args.expression);
+      return `The result is ${result}.`;
     } catch (error) {
       return `Error evaluating expression: ${error.message}`;
     }
@@ -211,20 +219,12 @@ module.exports = {
 };
 ```
 
-After adding the file, either restart the server or call the `/reload` endpoint to load the new tool.
-
-> **Hint**: The included `weather` tool is a more advanced example that calls an external **Amap Weather API**. To use it, you must configure your `WEATHER_API_KEY` in the `.env` file.
-
 ## 🔐 Authentication
 
-When authentication is enabled (`AUTH_ENABLED=true`), all endpoints (except `/health`) are protected.
+Authentication is managed via two types of tokens:
 
-*   **Admin Token**: The `ADMIN_TOKEN` from your `.env` file grants full access, including to the `/admin/*` routes for user management.
-*   **User Tokens**: You can create new users and API tokens using the admin endpoints. These tokens can have specific permissions and rate limits.
-
-To authenticate, provide the token in the `Authorization` header:
-
-`Authorization: Bearer YOUR_TOKEN_HERE`
+1.  **Access Tokens (JWT)**: Short-lived tokens obtained via `/api/login`. They are used to access the REST API for managing your account, tools, and API tokens. Provide them in the `Authorization: Bearer <token>` header.
+2.  **API Tokens**: Long-lived tokens you create for external services or models to call your tools. They can be restricted to specific permissions. Provide them in the `Authorization: Bearer <token>` header for JSON-RPC calls.
 
 ## 🤝 Contributing
 
@@ -239,6 +239,3 @@ Contributions are what make the open-source community such an amazing place to l
 ## 📜 License
 
 Distributed under the MIT License. See `LICENSE` for more information.
-
----
-*This README was generated with the help of an AI assistant.*

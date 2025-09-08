@@ -10,3 +10,4 @@ package-lock.json
 !/tools/template/
 !/tools/template/*
 .claude/
+CLAUDE.md

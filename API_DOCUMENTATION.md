@@ -1,422 +1,597 @@
 # MiloMCP API Documentation
 
-This document provides a detailed guide to the MiloMCP server API. The API is divided into two main parts:
-1.  A RESTful API for user and resource management.
-2.  A JSON-RPC 2.0 endpoint for tool discovery and execution.
+## Overview
 
-## 1. Authentication
+MiloMCP is a multi-user Model Context Protocol (MCP) server framework that provides JSON-RPC 2.0 communication over HTTP and WebSockets. It offers comprehensive user management, tool execution, and workspace management capabilities.
 
-The system uses two types of tokens for security:
+**Base URL:** `http://localhost:3000` (configurable via PORT environment variable)
 
--   **Access Token (JWT):** A short-lived (1-hour) JSON Web Token obtained after logging in. This token is required to access the RESTful management API endpoints. It must be sent in the `Authorization` header as a Bearer token.
--   **API Token:** A long-lived, persistent token that users generate themselves. This token is used exclusively to authenticate with the JSON-RPC endpoint for executing tools.
+## Authentication
+
+### Two-Token System
+
+1. **Access Tokens (JWT)** - Short-lived tokens (15 minutes) for REST API access
+2. **Refresh Tokens** - Long-lived tokens (30 days) for refreshing access tokens
+3. **API Tokens** - Long-lived tokens for JSON-RPC tool execution with configurable permissions
+
+### Headers
+
+- **Authorization:** `Bearer <token>` (for protected REST API endpoints)
+- **Content-Type:** `application/json`
+
+### Token Workflow
+
+**Initial Authentication:**
+1. User logs in with credentials via `POST /api/login`
+2. Server returns both `accessToken` (15 min) and `refreshToken` (30 days)
+3. Client stores both tokens securely
+
+**Using Access Tokens:**
+1. Include access token in Authorization header for API calls
+2. When access token expires (401 response), use refresh token
+
+**Refreshing Access Tokens:**
+1. Send refresh token to `POST /api/refresh`
+2. Server returns new access token and new refresh token
+3. Old refresh token is automatically revoked
+4. Client updates stored tokens
+
+**Logout:**
+1. Send refresh token to `POST /api/logout` to revoke it
+2. Omit refresh token to revoke all user's refresh tokens
 
 ---
 
-## 2. RESTful Management API
+## REST API Endpoints
 
-All management endpoints are prefixed with `/api`.
+### Authentication
 
-### Public Endpoints
-
-These endpoints do not require authentication.
-
-#### `POST /api/sign-up`
-
-Registers a new user in the system.
-
-**Request Body:**
-
-| Field      | Type   | Description                  | Required |
-| :--------- | :----- | :--------------------------- | :------- |
-| `username` | String | The desired username.        | Yes      |
-| `password` | String | The user's password.         | Yes      |
-| `name`     | String | The user's display name.     | Yes      |
-
-**Example Request:**
-```bash
-curl -X POST -H "Content-Type: application/json" \
-  -d '{"username":"testuser","password":"password123","name":"Test User"}' \
-  http://localhost:3000/api/sign-up
+#### Sign Up
+```
+POST /api/sign-up
 ```
 
-**Example Success Response (`201 Created`):**
+**Request Body:**
+```json
+{
+  "username": "string",
+  "password": "string", 
+  "name": "string"
+}
+```
+
+**Response:**
 ```json
 {
   "status": "success",
   "data": {
-    "id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
-    "username": "testuser",
-    "name": "Test User",
-    "createdAt": "2025-08-25T16:00:00.000Z",
-    "isAdmin": false
+    "id": "uuid",
+    "username": "string",
+    "name": "string",
+    "isAdmin": false,
+    "createdAt": "timestamp"
   }
 }
 ```
 
----
+**Error Responses:**
+- `400` - Invalid input (missing required fields)
+- `500` - User creation failed
 
-#### `POST /api/login`
-
-Authenticates a user and returns a JWT Access Token.
-
-**Request Body:**
-
-| Field      | Type   | Description          | Required |
-| :--------- | :----- | :------------------- | :------- |
-| `username` | String | The user's username. | Yes      |
-| `password` | String | The user's password. | Yes      |
-
-**Example Request:**
-```bash
-curl -X POST -H "Content-Type: application/json" \
-  -d '{"username":"testuser","password":"password123"}' \
-  http://localhost:3000/api/login
+#### Login
+```
+POST /api/login
 ```
 
-**Example Success Response (`200 OK`):**
+**Request Body:**
+```json
+{
+  "username": "string",
+  "password": "string"
+}
+```
+
+**Response:**
 ```json
 {
   "status": "success",
   "data": {
-    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+    "accessToken": "jwt_token",
+    "refreshToken": "refresh_token_string",
+    "user": {
+      "id": "uuid",
+      "username": "string",
+      "name": "string",
+      "isAdmin": boolean
+    }
   }
 }
 ```
 
----
+**Error Responses:**
+- `400` - Invalid input
+- `401` - Authentication failed
 
-### User Endpoints
-
-*Authentication: Access Token required.*
-
-#### `GET /api/me`
-
-Retrieves the details of the currently authenticated user.
-
-**Example Request:**
-```bash
-curl -H "Authorization: Bearer <Your_Access_Token>" http://localhost:3000/api/me
+#### Refresh Access Token
+```
+POST /api/refresh
 ```
 
-**Example Success Response (`200 OK`):**
+**Request Body:**
+```json
+{
+  "refreshToken": "refresh_token_string"
+}
+```
+
+**Response:**
 ```json
 {
   "status": "success",
   "data": {
-    "id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
-    "username": "testuser",
-    "name": "Test User",
-    "createdAt": "2025-08-25T16:00:00.000Z",
-    "isAdmin": false
+    "accessToken": "new_jwt_token",
+    "refreshToken": "new_refresh_token_string",
+    "user": {
+      "id": "uuid",
+      "username": "string",
+      "name": "string",
+      "isAdmin": boolean
+    }
   }
 }
 ```
 
----
+**Error Responses:**
+- `400` - Invalid input (missing refresh token)
+- `401` - Invalid or expired refresh token
 
-#### `GET /api/tokens`
+#### Logout
+```
+POST /api/logout
+```
+**Headers:** `Authorization: Bearer <access_token>`
 
-Retrieves a list of all API tokens for the authenticated user.
-
-**Example Request:**
-```bash
-curl -H "Authorization: Bearer <Your_Access_Token>" http://localhost:3000/api/tokens
+**Request Body (Optional):**
+```json
+{
+  "refreshToken": "refresh_token_string"
+}
 ```
 
----
-
-#### `POST /api/tokens`
-
-Creates a new API token.
-
-**Request Body:**
-
-| Field         | Type     | Description                                                                                                                               | Required |
-| :------------ | :------- | :---------------------------------------------------------------------------------------------------------------------------------------- | :------- |
-| `name`        | String   | A descriptive name for the token.                                                                                                         | Yes      |
-| `permissions` | String[] | **Optional.** An array of tool names this token can execute. For unlimited access, use `["*"]. If omitted, the token has no permissions. | No       |
-
-**Example Request (Specific Permissions):**
-```bash
-curl -X POST -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <Your_Access_Token>" \
-  -d '{"name":"calc-weather-token","permissions":["calculator", "weather"]}' \
-  http://localhost:3000/api/tokens
+**Response:**
+```json
+{
+  "status": "success",
+  "data": {
+    "message": "Logged out successfully."
+  }
+}
 ```
 
----
+**Behavior:**
+- If `refreshToken` is provided: Revokes only that specific refresh token
+- If `refreshToken` is omitted: Revokes all refresh tokens for the user
 
-#### `DELETE /api/tokens/:token`
+### User Management
 
-Revokes (deletes) an API token.
+#### Get Current User
+```
+GET /api/me
+```
+**Headers:** `Authorization: Bearer <access_token>`
 
-**Example Request:**
-```bash
-curl -X DELETE -H "Authorization: Bearer <Your_Access_Token>" \
-  http://localhost:3000/api/tokens/mcp_abc123...
+**Response:**
+```json
+{
+  "status": "success",
+  "data": {
+    "id": "uuid",
+    "username": "string",
+    "name": "string",
+    "isAdmin": boolean,
+    "createdAt": "timestamp"
+  }
+}
 ```
 
----
-
-#### `GET /api/tools`
-
-Retrieves a list of all tools available in the user's workspace, regardless of API token permissions.
-
-**Example Request:**
-```bash
-curl -H "Authorization: Bearer <Your_Access_Token>" http://localhost:3000/api/tools
+#### List All Users (Admin Only)
 ```
-
----
-
-### Environment Variable Endpoints
-
-*Authentication: Access Token required.*
-
-#### `GET /api/environment`
-
-Retrieves all environment variables for the authenticated user.
-
-**Example Request:**
-```bash
-curl -H "Authorization: Bearer <Your_Access_Token>" http://localhost:3000/api/environment
+GET /api/users
 ```
+**Headers:** `Authorization: Bearer <access_token>`
 
----
-
-#### `POST /api/environment`
-
-Sets or updates an environment variable.
-
-**Request Body:**
-
-| Field   | Type   | Description                               | Required |
-| :------ | :----- | :---------------------------------------- | :------- |
-| `key`   | String | The name of the environment variable.     | Yes      |
-| `value` | String | The value to be stored (will be encrypted). | Yes      |
-
----
-
-#### `DELETE /api/environment/:key`
-
-Deletes a specific environment variable.
-
-**Example Request:**
-```bash
-curl -X DELETE -H "Authorization: Bearer <Your_Access_Token>" \
-  http://localhost:3000/api/environment/WEATHER_API_KEY
-```
-
---- 
-
-### Workspace File Management Endpoints
-
-*Authentication: Access Token required.*
-
-These endpoints provide a secure, RESTful interface for managing the tool script files within a user's workspace, laying the foundation for an in-browser IDE experience.
-
-#### `GET /api/workspace/files`
-
-Retrieves a list of all tool script filenames in the user's workspace.
-
-**Example Request:**
-```bash
-curl -H "Authorization: Bearer <Your_Access_Token>" \
-  http://localhost:3000/api/workspace/files
-```
-
-**Example Success Response (`200 OK`):**
+**Response:**
 ```json
 {
   "status": "success",
   "data": [
-    "calculator.js",
-    "weather.js"
+    {
+      "id": "uuid",
+      "username": "string",
+      "name": "string",
+      "isAdmin": boolean,
+      "createdAt": "timestamp"
+    }
   ]
 }
 ```
 
----
-
-#### `GET /api/workspace/files/:filename`
-
-Retrieves the raw source code of a specific tool script.
-
-**URL Parameters:**
-
-| Parameter  | Description                                               |
-| :--------- | :-------------------------------------------------------- |
-| `filename` | The name of the file to retrieve (e.g., `calculator.js`). |
-
-**Example Request:**
-```bash
-curl -H "Authorization: Bearer <Your_Access_Token>" \
-  http://localhost:3000/api/workspace/files/calculator.js
+#### Create User (Admin Only)
 ```
-
-**Example Success Response (`200 OK`):**
-```javascript
-// Content-Type: text/plain
-module.exports = {
-  name: 'calculator',
-  description: 'Calculates a mathematical expression.',
-  // ... rest of the tool code
-};
+POST /api/users
 ```
-
----
-
-#### `PUT /api/workspace/files/:filename`
-
-Creates a new tool script or completely overwrites an existing one. The request body should be the raw source code of the tool.
-
-**URL Parameters:**
-
-| Parameter  | Description                                                              |
-| :--------- | :----------------------------------------------------------------------- |
-| `filename` | The name of the file to create or update (e.g., `new-tool.js`). Must be a valid filename ending in `.js`. |
-
-**Request Body:** The raw JavaScript code for the tool, sent with a `Content-Type` of `text/plain` or `application/javascript`.
-
-**Example Request:**
-```bash
-curl -X PUT -H "Authorization: Bearer <Your_Access_Token>" \
-  -H "Content-Type: text/plain" \
-  --data 'module.exports = { name: "new-tool", description: "A brand new tool.", execute: async () => "Hello, World!" };' \
-  http://localhost:3000/api/workspace/files/new-tool.js
-```
-
-**Example Success Response (`200 OK`):**
-```json
-{
-  "status": "success",
-  "data": {
-    "message": "File 'new-tool.js' saved successfully."
-  }
-}
-```
-
----
-
-#### `DELETE /api/workspace/files/:filename`
-
-Deletes a tool script from the user's workspace.
-
-**URL Parameters:**
-
-| Parameter  | Description                                          |
-| :--------- | :--------------------------------------------------- |
-| `filename` | The name of the file to delete (e.g., `new-tool.js`). |
-
-**Example Request:**
-```bash
-curl -X DELETE -H "Authorization: Bearer <Your_Access_Token>" \
-  http://localhost:3000/api/workspace/files/new-tool.js
-```
-
-**Example Success Response (`200 OK`):**
-```json
-{
-  "status": "success",
-  "data": {
-    "message": "File 'new-tool.js' deleted successfully."
-  }
-}
-```
-
----
-
-### Administrator Endpoints
-
-
-*Authentication: Admin Access Token required.*
-
-#### `GET /api/users`
-
-Retrieves a list of all users in the system.
-
-**Example Request:**
-```bash
-curl -H "Authorization: Bearer <Your_Admin_Access_Token>" http://localhost:3000/api/users
-```
-
----
-
-#### `POST /api/users`
-
-Creates a new user.
+**Headers:** `Authorization: Bearer <access_token>`
 
 **Request Body:**
-
-| Field      | Type   | Description                  | Required |
-| :--------- | :----- | :--------------------------- | :------- |
-| `username` | String | The new user's username.     | Yes      |
-| `password` | String | The new user's password.     | Yes      |
-| `name`     | String | The new user's display name. | Yes      |
-
----
-
-#### `DELETE /api/users/:id`
-
-Deletes a user and all their associated data (tokens, workspace, etc.). An admin cannot delete their own account.
-
-**URL Parameters:**
-
-| Parameter | Description                  |
-| :-------- | :--------------------------- |
-| `id`      | The UUID of the user to delete. |
-
-**Example Request:**
-```bash
-curl -X DELETE -H "Authorization: Bearer <Your_Admin_Access_Token>" \
-  http://localhost:3000/api/users/a1b2c3d4-e5f6-7890-1234-567890abcdef
-```
-
----
-
-## 3. JSON-RPC Tool Execution
-
-The server provides three endpoints for client interaction, adhering to the Model Context Protocol (MCP):
-
-- **`/jsonrpc`**: The primary endpoint for standard request/response cycles.
-- **`/mcp`**: An alias for `/jsonrpc`, provided for compatibility with MCP-specific clients.
-- **`/sse`**: A Server-Sent Events endpoint. Clients can connect here to receive asynchronous responses and notifications from the server.
-- **`/messages`**: An endpoint where MCP clients can POST their requests. The server will process them and broadcast the response to all connected `/sse` clients.
-
-All interactions follow the JSON-RPC 2.0 specification.
-
-**Authentication:** All methods require a valid **API Token** to be sent, either in the `Authorization: Bearer <Your_API_Token>` header or as an `api_token` parameter in the request body.
-
-### `tools/list`
-
-Returns a list of tools that the provided API Token is permitted to execute.
-
-**Example Request:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "id": "1",
-  "method": "tools/list"
+  "username": "string",
+  "password": "string",
+  "name": "string"
 }
 ```
 
-**Example Success Response:**
+#### Delete User (Admin Only)
+```
+DELETE /api/users/{id}
+```
+**Headers:** `Authorization: Bearer <access_token>`
+
+**Response:**
+```json
+{
+  "status": "success",
+  "data": {
+    "message": "User deleted successfully."
+  }
+}
+```
+
+### Token Management
+
+#### List API Tokens
+```
+GET /api/tokens
+```
+**Headers:** `Authorization: Bearer <access_token>`
+
+**Response:**
+```json
+{
+  "status": "success",
+  "data": [
+    {
+      "id": "uuid",
+      "name": "string",
+      "permissions": ["tool1", "tool2"] | ["*"],
+      "createdAt": "timestamp",
+      "lastUsedAt": "timestamp"
+    }
+  ]
+}
+```
+
+#### Create API Token
+```
+POST /api/tokens
+```
+**Headers:** `Authorization: Bearer <access_token>`
+
+**Request Body:**
+```json
+{
+  "name": "string",
+  "permissions": ["tool1", "tool2"] // Optional, ["*"] for all tools
+}
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "data": {
+    "id": "uuid",
+    "name": "string",
+    "token": "api_token_string",
+    "permissions": ["tool1", "tool2"],
+    "createdAt": "timestamp"
+  }
+}
+```
+
+#### Revoke API Token
+```
+DELETE /api/tokens/{token}
+```
+**Headers:** `Authorization: Bearer <access_token>`
+
+### Environment Variables
+
+#### Get User Environment Variables
+```
+GET /api/environment
+```
+**Headers:** `Authorization: Bearer <access_token>`
+
+**Response:**
+```json
+{
+  "status": "success",
+  "data": {
+    "VARIABLE_NAME": "value",
+    "API_KEY": "secret_key"
+  }
+}
+```
+
+#### Set Environment Variable
+```
+POST /api/environment
+```
+**Headers:** `Authorization: Bearer <access_token>`
+
+**Request Body:**
+```json
+{
+  "key": "VARIABLE_NAME",
+  "value": "variable_value"
+}
+```
+
+#### Delete Environment Variable
+```
+DELETE /api/environment/{key}
+```
+**Headers:** `Authorization: Bearer <access_token>`
+
+### Tool Management
+
+#### List Available Tools
+```
+GET /api/tools
+```
+**Headers:** `Authorization: Bearer <access_token>`
+
+**Response:**
+```json
+{
+  "status": "success",
+  "data": [
+    {
+      "name": "calculator",
+      "description": "执行基本的数学计算",
+      "parameters": {
+        "expression": {
+          "type": "string",
+          "description": "要计算的数学表达式"
+        }
+      },
+      "required": ["expression"]
+    }
+  ]
+}
+```
+
+### Workspace File Management
+
+#### List Workspace Files
+```
+GET /api/workspace/files
+```
+**Headers:** `Authorization: Bearer <access_token>`
+
+**Response:**
+```json
+{
+  "status": "success",
+  "data": [
+    {
+      "name": "calculator.js",
+      "path": "/tools/{userId}/calculator.js",
+      "size": 1847,
+      "lastModified": "2024-01-15T10:30:45.123Z",
+      "type": "file",
+      "extension": ".js",
+      "isReadonly": false,
+      "encoding": "utf-8",
+      "permissions": {
+        "read": true,
+        "write": true,
+        "delete": true
+      },
+      "metadata": {
+        "toolName": "calculator",
+        "toolDescription": "执行基本的数学计算",
+        "isValid": true,
+        "lastValidated": "2024-01-15T10:30:45.123Z",
+        "validationErrors": null
+      },
+      "contentPreview": {
+        "lineCount": 42,
+        "hasExports": true,
+        "exportedFunctions": ["execute"],
+        "lastEditedBy": "user123"
+      }
+    }
+  ]
+}
+```
+
+#### Get File Content
+```
+GET /api/workspace/files/{filename}
+```
+**Headers:** `Authorization: Bearer <access_token>`
+
+**Response:** Raw file content (Content-Type: text/plain)
+
+#### Create/Update File
+```
+PUT /api/workspace/files/{filename}
+```
+**Headers:** `Authorization: Bearer <access_token>`, `Content-Type: text/plain`
+**Body:** Raw file content
+
+#### Delete File
+```
+DELETE /api/workspace/files/{filename}
+```
+**Headers:** `Authorization: Bearer <access_token>`
+
+#### Upload Files
+```
+POST /api/workspace/files/upload
+```
+**Headers:** `Authorization: Bearer <access_token>`, `Content-Type: multipart/form-data`
+
+**Form Data:**
+- Field name: `files` (supports multiple files)
+- File type: JavaScript (.js) files only
+- File size limit: 10MB per file
+- File count limit: Maximum 10 files per request
+
+**Response (Success - All files uploaded):**
+```json
+{
+  "status": "success",
+  "data": {
+    "uploaded": [
+      {
+        "filename": "my-tool.js",
+        "size": 1024,
+        "status": "uploaded",
+        "path": "/api/workspace/files/my-tool.js"
+      }
+    ],
+    "failed": [],
+    "summary": {
+      "total": 1,
+      "successful": 1,
+      "failed": 0
+    }
+  }
+}
+```
+
+**Response (Partial Success - Some files failed):**
+```json
+{
+  "status": "success",
+  "data": {
+    "uploaded": [
+      {
+        "filename": "valid-tool.js",
+        "size": 1024,
+        "status": "uploaded",
+        "path": "/api/workspace/files/valid-tool.js"
+      }
+    ],
+    "failed": [
+      {
+        "filename": "invalid-tool.js",
+        "error": "File does not appear to be a valid JavaScript module (missing module.exports or exports)."
+      }
+    ],
+    "summary": {
+      "total": 2,
+      "successful": 1,
+      "failed": 1
+    }
+  }
+}
+```
+
+**Error Responses:**
+- `400` - No files uploaded (`NO_FILES`)
+- `400` - File too large (`FILE_TOO_LARGE`)
+- `400` - Too many files (`TOO_MANY_FILES`)
+- `400` - Invalid file type (`INVALID_FILE_TYPE`)
+- `400` - All uploads failed (`ALL_UPLOADS_FAILED`)
+- `401` - Unauthorized
+- `500` - Upload processing error (`UPLOAD_FAILED`)
+
+**Status Codes:**
+- `201` - All files uploaded successfully
+- `207` - Partial success (some files failed)
+- `400` - All files failed or validation error
+
+**File Validation:**
+- Only JavaScript (.js) files are accepted
+- Filenames must contain only alphanumeric characters, hyphens, and underscores
+- Files must not be empty
+- Files should contain `module.exports` or `exports` for tool validation
+
+---
+
+## JSON-RPC 2.0 API
+
+### Base Endpoints
+- `POST /jsonrpc` - Primary JSON-RPC endpoint
+- `POST /mcp` - MCP compatible alias
+
+### Authentication
+API Token can be provided via:
+1. Request parameter: `"api_token": "your_token"`
+2. Authorization header: `Authorization: Bearer your_token`
+
+### Methods
+
+#### Initialize
 ```json
 {
   "jsonrpc": "2.0",
-  "id": "1",
+  "method": "initialize",
+  "id": 1
+}
+```
+
+**Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "protocolVersion": "2025-06-18",
+    "serverInfo": {
+      "name": "MiloMCP Server",
+      "version": "2.0.0"
+    },
+    "capabilities": {}
+  }
+}
+```
+
+#### List Tools
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/list",
+  "params": {
+    "api_token": "your_api_token"
+  },
+  "id": 1
+}
+```
+
+**Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
   "result": {
     "tools": [
       {
-        "name": "uuid-generator",
-        "description": "Generates one or more UUIDs.",
+        "name": "calculator",
+        "description": "执行基本的数学计算",
         "inputSchema": {
           "type": "object",
           "properties": {
-            "count": { "type": "number", "description": "The number of UUIDs to generate." }
+            "expression": {
+              "type": "string",
+              "description": "要计算的数学表达式"
+            }
           },
-          "required": ["count"]
+          "required": ["expression"]
         }
       }
     ]
@@ -424,51 +599,194 @@ Returns a list of tools that the provided API Token is permitted to execute.
 }
 ```
 
----
-
-
-### `tools/call`
-
-Executes a tool. The server will reject the call if the API Token does not have permission for the requested tool.
-
-**Request `params`:**
-
-| Field       | Type   | Description                                                    |
-| :---------- | :----- | :------------------------------------------------------------- |
-| `name`      | String | The name of the tool to execute (e.g., `uuid-generator`).      |
-| `arguments` | Object | An object containing the parameters required by the tool.      |
-
-**Example Request:**
+#### Call Tool
 ```json
 {
   "jsonrpc": "2.0",
-  "id": "2",
   "method": "tools/call",
   "params": {
-    "name": "uuid-generator",
+    "api_token": "your_api_token",
+    "name": "calculator",
     "arguments": {
-      "count": 3
+      "expression": "2 + 2"
     }
+  },
+  "id": 1
+}
+```
+
+**Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"expression\": \"2 + 2\", \"result\": 4, \"formatted\": \"2 + 2 = 4\"}"
+      }
+    ]
   }
 }
 ```
 
-**Example Success Response:**
+### Error Codes
+- `-32000` - API token is required
+- `-32001` - Invalid API token  
+- `-32003` - Insufficient permissions for tool
+- `-32601` - Method/Tool not found
+- `-32603` - Tool execution error
+
+---
+
+## WebSocket & SSE Endpoints
+
+### Server-Sent Events (SSE)
+```
+GET /sse
+```
+
+Establishes an SSE connection for real-time MCP communication.
+
+**Events:**
+- `endpoint` - Initial connection event
+- `message` - JSON-RPC responses
+
+### Messages Endpoint
+```
+POST /messages
+```
+
+Accepts JSON-RPC messages and broadcasts responses via SSE.
+
+---
+
+## Tool Structure
+
+Custom tools must follow this structure:
+
+```javascript
+module.exports = {
+  name: 'tool-name',
+  description: 'Tool description',
+  parameters: {
+    param1: {
+      type: 'string',
+      description: 'Parameter description'
+    }
+  },
+  required: ['param1'],
+  async execute(args, env) {
+    // Tool implementation
+    // args - tool arguments
+    // env - merged environment (system + user variables)
+    return result;
+  }
+};
+```
+
+### Built-in Tools
+
+#### Calculator
+- **Name:** `calculator`
+- **Description:** 执行基本的数学计算
+- **Parameters:** `expression` (string) - Math expression to evaluate
+- **Example:** `"2 + 2"`, `"sqrt(16) + pow(2, 3)"`
+
+#### Weather
+- **Name:** `weather` 
+- **Description:** 获取指定城市的实时天气信息
+- **Parameters:** `city` (string) - City name or adcode
+- **Requires:** `WEATHER_API_KEY` environment variable
+- **Example:** `"北京"`, `"330100"`
+
+---
+
+## Error Response Format
+
+All API endpoints return errors in the following format:
+
 ```json
 {
-    "jsonrpc": "2.0",
-    "id": "2",
-    "result": {
-        "content": [
-            {
-                "type": "text",
-                "text": "[
-  "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-  "f47ac10b-58cc-4372-a567-0e02b2c3d480",
-  "f47ac10b-58cc-4372-a567-0e02b2c3d481"
-]"
-            }
-        ]
-    }
+  "status": "error",
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "Human readable error message"
+  }
 }
 ```
+
+### Common Error Codes
+- `INVALID_INPUT` - Missing or invalid request parameters
+- `AUTHENTICATION_FAILED` - Invalid credentials
+- `REFRESH_FAILED` - Invalid or expired refresh token
+- `FORBIDDEN` - Insufficient permissions
+- `NOT_FOUND` - Resource not found
+- `INTERNAL_ERROR` - Server error
+- `USER_CREATION_FAILED` - User creation error
+
+### File Upload Error Codes
+- `NO_FILES` - No files were uploaded
+- `FILE_TOO_LARGE` - File size exceeds the 10MB limit
+- `TOO_MANY_FILES` - Maximum of 10 files allowed per upload
+- `INVALID_FILE_TYPE` - Only JavaScript (.js) files are allowed
+- `UNEXPECTED_FIELD` - Unexpected file field (use "files" as field name)
+- `ALL_UPLOADS_FAILED` - All file uploads failed
+- `UPLOAD_FAILED` - Failed to process file uploads
+- `UPLOAD_ERROR` - General upload error
+
+---
+
+## CORS Configuration
+
+The server supports CORS with the following headers:
+- `Access-Control-Allow-Origin: *`
+- `Access-Control-Allow-Methods: GET, POST, PUT, DELETE, PATCH, OPTIONS`
+- `Access-Control-Allow-Headers: Content-Type, Authorization`
+
+---
+
+## Environment Setup
+
+Required environment variables:
+- `PORT` - Server port (default: 3000)
+- `INITIAL_ADMIN_USER` - Initial admin username
+- `INITIAL_ADMIN_PASSWORD` - Initial admin password
+- `WEATHER_API_KEY` - API key for weather service (optional)
+
+---
+
+## Database Schema
+
+### Users Table
+- `id` - UUID primary key
+- `username` - Unique username
+- `password` - Hashed password
+- `name` - Display name
+- `isAdmin` - Admin flag
+- `createdAt` - Creation timestamp
+
+### Tokens Table  
+- `token` - Hashed API token (primary key)
+- `userId` - Foreign key to users
+- `name` - Token name
+- `permissions` - JSON array of permitted tools
+- `createdAt` - Creation timestamp
+- `lastUsedAt` - Last usage timestamp
+
+### Refresh Tokens Table
+- `id` - UUID primary key
+- `token` - Hashed refresh token
+- `userId` - Foreign key to users
+- `expiresAt` - Expiration timestamp
+- `createdAt` - Creation timestamp
+- `lastUsedAt` - Last usage timestamp
+- `isRevoked` - Boolean flag for revoked tokens
+
+### User Environment Variables Table
+- `id` - Auto-increment primary key
+- `userId` - Foreign key to users
+- `key` - Variable name
+- `value` - Variable value
+- `createdAt` - Creation timestamp

@@ -2,7 +2,8 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
-const path =require('path');
+const path = require('path');
+const multer = require('multer');
 
 // Import services
 const authServicePromise = require('./services/auth');
@@ -59,9 +60,30 @@ app.use((req, res, next) => {
     };
     await setupInitialAdmin();
 
+    // Schedule cleanup of expired refresh tokens (runs every 24 hours)
+    setInterval(async () => {
+        try {
+            await authService.cleanupExpiredRefreshTokens();
+            console.log('Cleaned up expired refresh tokens');
+        } catch (error) {
+            console.error('Error cleaning up expired refresh tokens:', error);
+        }
+    }, 24 * 60 * 60 * 1000); // 24 hours in milliseconds
+
 
     // --- API Routes ---
     const apiRouter = express.Router();
+    
+    // Protected routes middleware
+    const protect = authService.verifyAccessToken();
+
+    // Middleware to protect routes and check for admin privileges
+    const adminOnly = (req, res, next) => {
+        if (!req.user || !req.user.isAdmin) {
+            return res.status(403).json({ status: 'error', error: { code: 'FORBIDDEN', message: 'Administrator access required.' } });
+        }
+        next();
+    };
     
     // Public routes
     apiRouter.post('/sign-up', async (req, res) => {
@@ -90,17 +112,39 @@ app.use((req, res, next) => {
         }
     });
 
-    // Protected routes middleware
-    const protect = authService.verifyAccessToken();
-
-    // Middleware to protect routes and check for admin privileges
-    const adminOnly = (req, res, next) => {
-        if (!req.user || !req.user.isAdmin) {
-            return res.status(403).json({ status: 'error', error: { code: 'FORBIDDEN', message: 'Administrator access required.' } });
+    apiRouter.post('/refresh', async (req, res) => {
+        const { refreshToken } = req.body;
+        if (!refreshToken) {
+            return res.status(400).json({ status: 'error', error: { code: 'INVALID_INPUT', message: 'Refresh token is required.' } });
         }
-        next();
-    };
-    
+        try {
+            const result = await authService.refreshAccessToken(refreshToken);
+            res.json({ status: 'success', data: result });
+        } catch (error) {
+            res.status(401).json({ status: 'error', error: { code: 'REFRESH_FAILED', message: error.message } });
+        }
+    });
+
+    apiRouter.post('/logout', protect, async (req, res) => {
+        const { refreshToken } = req.body;
+        try {
+            if (refreshToken) {
+                // Find and revoke the specific refresh token
+                const tokenData = await authService.verifyRefreshToken(refreshToken);
+                if (tokenData) {
+                    await authService.revokeRefreshToken(tokenData.tokenId);
+                }
+            } else {
+                // Revoke all refresh tokens for the user
+                await authService.revokeAllRefreshTokens(req.user.userId);
+            }
+            res.json({ status: 'success', data: { message: 'Logged out successfully.' } });
+        } catch (error) {
+            // Even if there's an error revoking tokens, logout should succeed
+            res.json({ status: 'success', data: { message: 'Logged out successfully.' } });
+        }
+    });
+
     // User & Token Management
     apiRouter.get('/me', protect, async (req, res) => {
         try {
@@ -228,6 +272,179 @@ app.use((req, res, next) => {
     // Workspace File Management
     const workspaceRouter = express.Router();
     workspaceRouter.use(protect); // All workspace routes are protected
+
+    // Configure multer for file uploads
+    const upload = multer({
+        storage: multer.memoryStorage(),
+        limits: {
+            fileSize: 10 * 1024 * 1024, // 10MB limit
+            files: 10 // Maximum 10 files at once
+        },
+        fileFilter: (req, file, cb) => {
+            // Only allow JavaScript files
+            if (file.mimetype === 'application/javascript' || 
+                file.mimetype === 'text/javascript' || 
+                file.originalname.endsWith('.js')) {
+                cb(null, true);
+            } else {
+                cb(new Error('Only JavaScript (.js) files are allowed'));
+            }
+        }
+    });
+
+    // Error handling middleware for multer
+    const handleMulterError = (error, req, res, next) => {
+        if (error instanceof multer.MulterError) {
+            switch (error.code) {
+                case 'LIMIT_FILE_SIZE':
+                    return res.status(400).json({
+                        status: 'error',
+                        error: {
+                            code: 'FILE_TOO_LARGE',
+                            message: 'File size exceeds the 10MB limit.'
+                        }
+                    });
+                case 'LIMIT_FILE_COUNT':
+                    return res.status(400).json({
+                        status: 'error',
+                        error: {
+                            code: 'TOO_MANY_FILES',
+                            message: 'Maximum of 10 files allowed per upload.'
+                        }
+                    });
+                case 'LIMIT_UNEXPECTED_FILE':
+                    return res.status(400).json({
+                        status: 'error',
+                        error: {
+                            code: 'UNEXPECTED_FIELD',
+                            message: 'Unexpected file field. Use "files" as the field name.'
+                        }
+                    });
+                default:
+                    return res.status(400).json({
+                        status: 'error',
+                        error: {
+                            code: 'UPLOAD_ERROR',
+                            message: error.message
+                        }
+                    });
+            }
+        } else if (error.message === 'Only JavaScript (.js) files are allowed') {
+            return res.status(400).json({
+                status: 'error',
+                error: {
+                    code: 'INVALID_FILE_TYPE',
+                    message: error.message
+                }
+            });
+        }
+        next(error);
+    };
+
+    // Upload files to workspace
+    workspaceRouter.post('/files/upload', upload.array('files'), handleMulterError, async (req, res) => {
+        try {
+            if (!req.files || req.files.length === 0) {
+                return res.status(400).json({ 
+                    status: 'error', 
+                    error: { 
+                        code: 'NO_FILES', 
+                        message: 'No files were uploaded. Please select one or more .js files.' 
+                    } 
+                });
+            }
+
+            const results = [];
+            const errors = [];
+
+            for (const file of req.files) {
+                try {
+                    // Validate filename
+                    const filename = file.originalname;
+                    if (!filename.match(/^[\w-]+\.js$/)) {
+                        errors.push({
+                            filename,
+                            error: 'Invalid filename. Only alphanumeric characters, hyphens, and underscores are allowed.'
+                        });
+                        continue;
+                    }
+
+                    // Convert buffer to string
+                    const content = file.buffer.toString('utf-8');
+                    
+                    // Validate that it's not empty
+                    if (!content.trim()) {
+                        errors.push({
+                            filename,
+                            error: 'File is empty.'
+                        });
+                        continue;
+                    }
+
+                    // Optional: Basic validation that it looks like a tool file
+                    if (!content.includes('module.exports') && !content.includes('exports.')) {
+                        errors.push({
+                            filename,
+                            error: 'File does not appear to be a valid JavaScript module (missing module.exports or exports).'
+                        });
+                        continue;
+                    }
+
+                    // Save the file
+                    await workspaceService.writeFile(req.user.userId, filename, content);
+                    
+                    results.push({
+                        filename,
+                        size: file.size,
+                        status: 'uploaded',
+                        path: `/api/workspace/files/${filename}`
+                    });
+
+                } catch (fileError) {
+                    errors.push({
+                        filename: file.originalname,
+                        error: fileError.message
+                    });
+                }
+            }
+
+            const response = {
+                status: 'success',
+                data: {
+                    uploaded: results,
+                    failed: errors,
+                    summary: {
+                        total: req.files.length,
+                        successful: results.length,
+                        failed: errors.length
+                    }
+                }
+            };
+
+            // If all files failed, return an error status
+            if (results.length === 0) {
+                response.status = 'error';
+                response.error = {
+                    code: 'ALL_UPLOADS_FAILED',
+                    message: 'All file uploads failed. Check the failed array for details.'
+                };
+                return res.status(400).json(response);
+            }
+
+            // Return 207 Multi-Status if some files failed, 201 if all succeeded
+            const statusCode = errors.length > 0 ? 207 : 201;
+            res.status(statusCode).json(response);
+
+        } catch (error) {
+            res.status(500).json({ 
+                status: 'error', 
+                error: { 
+                    code: 'UPLOAD_FAILED', 
+                    message: 'Failed to process file uploads: ' + error.message 
+                } 
+            });
+        }
+    });
 
     // List all tool files
     workspaceRouter.get('/files', async (req, res) => {

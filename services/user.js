@@ -29,7 +29,12 @@ class UserService {
   }
 
   async findUserByUsername(username) {
-    return (await this.db).get('SELECT * FROM users WHERE username = ?', username);
+    const user = await (await this.db).get('SELECT * FROM users WHERE username = ?', username);
+    if (user) {
+      // Elegantly ensure the API returns a true boolean
+      user.isAdmin = !!user.isAdmin;
+    }
+    return user;
   }
 
   async createUser({ username, password, name }) {

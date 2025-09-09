@@ -10,5 +10,4 @@ services:
       - "${PORT}:${PORT}"
     volumes:
       - ./tools:/opt/mcp/tools
-      - ./middleware/user.json:/opt/mcp/middleware/user.json
       - ./db:/opt/mcp/db

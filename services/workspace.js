@@ -34,8 +34,86 @@ class WorkspaceService {
     const userWorkspacePath = await this._ensureUserWorkspace(userId);
     try {
       const files = await fs.readdir(userWorkspacePath);
-      // Filter for .js files just in case other files sneak in
-      return files.filter(file => file.endsWith('.js'));
+      const jsFiles = files.filter(file => file.endsWith('.js'));
+      
+      // Get detailed information for each file
+      const filePromises = jsFiles.map(async (filename) => {
+        const filePath = path.join(userWorkspacePath, filename);
+        try {
+          const stats = await fs.stat(filePath);
+          const fileInfo = {
+            name: filename,
+            path: `/tools/${userId}/${filename}`,
+            size: stats.size,
+            lastModified: stats.mtime.toISOString(),
+            type: 'file',
+            extension: '.js',
+            isReadonly: false,
+            encoding: 'utf-8',
+            permissions: {
+              read: true,
+              write: true,
+              delete: true
+            }
+          };
+
+          // Try to extract tool metadata
+          try {
+            delete require.cache[require.resolve(filePath)];
+            const tool = require(filePath);
+            const content = await fs.readFile(filePath, 'utf-8');
+            const lineCount = content.split('\n').length;
+            
+            fileInfo.metadata = {
+              toolName: tool.name || null,
+              toolDescription: tool.description || null,
+              isValid: !!(tool.name && tool.execute && typeof tool.execute === 'function'),
+              lastValidated: new Date().toISOString(),
+              validationErrors: null
+            };
+
+            fileInfo.contentPreview = {
+              lineCount,
+              hasExports: content.includes('module.exports'),
+              exportedFunctions: this._extractExportedFunctions(content),
+              lastEditedBy: userId
+            };
+          } catch (toolError) {
+            fileInfo.metadata = {
+              toolName: null,
+              toolDescription: null,
+              isValid: false,
+              lastValidated: new Date().toISOString(),
+              validationErrors: toolError.message
+            };
+            
+            try {
+              const content = await fs.readFile(filePath, 'utf-8');
+              fileInfo.contentPreview = {
+                lineCount: content.split('\n').length,
+                hasExports: content.includes('module.exports'),
+                exportedFunctions: [],
+                lastEditedBy: userId
+              };
+            } catch {
+              fileInfo.contentPreview = {
+                lineCount: 0,
+                hasExports: false,
+                exportedFunctions: [],
+                lastEditedBy: userId
+              };
+            }
+          }
+
+          return fileInfo;
+        } catch (statError) {
+          console.error(`Failed to get file stats for ${filename}:`, statError);
+          return null;
+        }
+      });
+
+      const fileDetails = await Promise.all(filePromises);
+      return fileDetails.filter(Boolean); // Filter out nulls from failed stats
     } catch (error) {
       // If the directory doesn't exist, it's not an error, just return empty.
       if (error.code === 'ENOENT') {
@@ -43,6 +121,24 @@ class WorkspaceService {
       }
       throw error;
     }
+  }
+
+  _extractExportedFunctions(content) {
+    const functions = [];
+    try {
+      // Simple regex to find exported functions
+      const exportMatches = content.match(/(?:module\.exports\s*=\s*{[^}]*|exports\.\w+\s*=)/g);
+      if (exportMatches) {
+        // Look for common function exports
+        if (content.includes('execute') && (content.includes('async execute') || content.includes('execute(') || content.includes('execute:'))) {
+          functions.push('execute');
+        }
+        // Add other common patterns as needed
+      }
+    } catch (error) {
+      // If parsing fails, just return empty array
+    }
+    return functions;
   }
 
   async readFile(userId, filename) {

@@ -32,6 +32,19 @@ module.exports = (async () => {
       name TEXT,
       permissions TEXT,             -- e.g., '["calculator", "weather"]' (subset of tools in their workspace)
       createdAt TEXT,
+      lastUsedAt TEXT,
+      FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+    )`);
+
+    // Stores refresh tokens for maintaining authenticated sessions
+    await db.exec(`CREATE TABLE IF NOT EXISTS refresh_tokens (
+      id TEXT PRIMARY KEY,          -- UUID for the refresh token
+      token TEXT UNIQUE NOT NULL,   -- The actual refresh token (hashed)
+      userId TEXT NOT NULL,
+      expiresAt TEXT NOT NULL,      -- Expiration timestamp
+      createdAt TEXT NOT NULL,
+      lastUsedAt TEXT,
+      isRevoked BOOLEAN DEFAULT false,
       FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
     )`);
 
